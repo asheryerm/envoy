@@ -68,6 +68,11 @@ struct SupportedCommands {
    */
   static const std::string& ping() { CONSTRUCT_ON_FIRST_USE(std::string, "ping"); }
 
+    /**
+   * @return multi command
+   */
+  static const std::string& multi() { CONSTRUCT_ON_FIRST_USE(std::string, "multi"); }
+
   /**
    * @return commands which alters the state of redis
    */

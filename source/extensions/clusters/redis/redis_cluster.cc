@@ -343,7 +343,7 @@ void RedisCluster::RedisDiscoverySession::resolveClusterHostnames(
            hostname_resolution_required_cnt](Network::DnsResolver::ResolutionStatus status,
                                              std::list<Network::DnsResponse>&& response) -> void {
             auto& slot = (*slots)[slot_idx];
-            ENVOY_LOG(debug, "async DNS resolution complete for {}", slot.primary_hostname_);
+            ENVOY_LOG(debug, "ASHER: async DNS resolution complete for {}", slot.primary_hostname_);
             updateDnsStats(status, response.empty());
             // If DNS resolution for a primary fails, we stop resolution for remaining, and reset
             // the timer.
