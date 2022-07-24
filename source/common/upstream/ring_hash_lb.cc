@@ -50,6 +50,7 @@ RingHashLoadBalancerStats RingHashLoadBalancer::generateStats(Stats::Scope& scop
 }
 
 HostConstSharedPtr RingHashLoadBalancer::Ring::chooseHost(uint64_t h, uint32_t attempt) const {
+  ENVOY_LOG(info, "filename = {}...line = {}", __FILE__, __LINE__);
   if (ring_.empty()) {
     return nullptr;
   }

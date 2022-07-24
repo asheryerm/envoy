@@ -66,7 +66,8 @@ private:
   ReadPolicy read_policy_;
 };
 
-class ClientImpl : public Client, public DecoderCallbacks, public Network::ConnectionCallbacks {
+class ClientImpl : public Client, public DecoderCallbacks, public Network::ConnectionCallbacks,
+                   public Logger::Loggable<Logger::Id::redis> {
 public:
   static ClientPtr create(Upstream::HostConstSharedPtr host, Event::Dispatcher& dispatcher,
                           EncoderPtr&& encoder, DecoderFactory& decoder_factory,
@@ -146,7 +147,7 @@ private:
   Stats::Scope& scope_;
 };
 
-class ClientFactoryImpl : public ClientFactory {
+class ClientFactoryImpl : public ClientFactory, public Logger::Loggable<Logger::Id::redis> {
 public:
   // RedisProxy::ConnPool::ClientFactoryImpl
   ClientPtr create(Upstream::HostConstSharedPtr host, Event::Dispatcher& dispatcher,

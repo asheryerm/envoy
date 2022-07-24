@@ -56,12 +56,18 @@ ClientPtr ClientImpl::create(Upstream::HostConstSharedPtr host, Event::Dispatche
                              const Config& config,
                              const RedisCommandStatsSharedPtr& redis_command_stats,
                              Stats::Scope& scope) {
+  ENVOY_LOG(info, "ASHER &&& ClientImpl::create1");
   auto client = std::make_unique<ClientImpl>(host, dispatcher, std::move(encoder), decoder_factory,
                                              config, redis_command_stats, scope);
+  ENVOY_LOG(info, "ASHER &&& ClientImpl::create2");
   client->connection_ = host->createConnection(dispatcher, nullptr, nullptr).connection_;
+  ENVOY_LOG(info, "ASHER &&& ClientImpl::create3");
   client->connection_->addConnectionCallbacks(*client);
+  ENVOY_LOG(info, "ASHER &&& ClientImpl::create4");
   client->connection_->addReadFilter(Network::ReadFilterSharedPtr{new UpstreamReadFilter(*client)});
+  ENVOY_LOG(info, "ASHER &&& ClientImpl::create5");
   client->connection_->connect();
+  ENVOY_LOG(info, "ASHER &&& ClientImpl::create6");
   client->connection_->noDelay(true);
   return client;
 }
@@ -99,6 +105,8 @@ void ClientImpl::flushBufferAndResetTimer() {
 }
 
 PoolRequest* ClientImpl::makeRequest(const RespValue& request, ClientCallbacks& callbacks) {
+
+  ENVOY_LOG(info, "ASHER: *** in ClientImpl::makeRequest");
   ASSERT(connection_->state() == Network::Connection::State::Open);
 
   const bool empty_buffer = encoder_buffer_.length() == 0;
@@ -312,6 +320,7 @@ ClientPtr ClientFactoryImpl::create(Upstream::HostConstSharedPtr host,
                                     const RedisCommandStatsSharedPtr& redis_command_stats,
                                     Stats::Scope& scope, const std::string& auth_username,
                                     const std::string& auth_password) {
+  ENVOY_LOG(info, "ASHER &&& ClientFactoryImpl::create");
   ClientPtr client = ClientImpl::create(host, dispatcher, EncoderPtr{new EncoderImpl()},
                                         decoder_factory_, config, redis_command_stats, scope);
   client->initialize(auth_username, auth_password);

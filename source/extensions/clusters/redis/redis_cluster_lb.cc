@@ -126,6 +126,7 @@ Upstream::HostConstSharedPtr chooseRandomHost(const Upstream::HostSetImpl& host_
 
 Upstream::HostConstSharedPtr RedisClusterLoadBalancerFactory::RedisClusterLoadBalancer::chooseHost(
     Envoy::Upstream::LoadBalancerContext* context) {
+
   if (!slot_array_) {
     return nullptr;
   }

@@ -191,7 +191,8 @@ private:
    * cost and provide a fast lookup constant time lookup similar to Maglev. This will be used by the
    * redis proxy filter for load balancing purpose.
    */
-  class RedisClusterLoadBalancer : public Upstream::LoadBalancer {
+  class RedisClusterLoadBalancer : public Upstream::LoadBalancer,
+                                   public Logger::Loggable<Logger::Id::redis> {
   public:
     RedisClusterLoadBalancer(SlotArraySharedPtr slot_array, ShardVectorSharedPtr shard_vector,
                              Random::RandomGenerator& random)

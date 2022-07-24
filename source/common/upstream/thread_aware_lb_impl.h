@@ -120,7 +120,8 @@ private:
   };
   using PerPriorityStatePtr = std::unique_ptr<PerPriorityState>;
 
-  struct LoadBalancerImpl : public LoadBalancer {
+  struct LoadBalancerImpl : public LoadBalancer,
+                            public Logger::Loggable<Logger::Id::redis> {
     LoadBalancerImpl(ClusterStats& stats, Random::RandomGenerator& random)
         : stats_(stats), random_(random) {}
 

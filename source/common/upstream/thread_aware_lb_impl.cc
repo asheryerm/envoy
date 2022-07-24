@@ -137,6 +137,7 @@ void ThreadAwareLoadBalancerBase::refresh() {
 
 HostConstSharedPtr
 ThreadAwareLoadBalancerBase::LoadBalancerImpl::chooseHost(LoadBalancerContext* context) {
+  ENVOY_LOG(info, "ASHER: in ThreadAwareLoadBalancerBase::LoadBalancerImpl::chooseHost");
   // Make sure we correctly return nullptr for any early chooseHost() calls.
   if (per_priority_state_ == nullptr) {
     return nullptr;

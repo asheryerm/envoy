@@ -284,6 +284,7 @@ void SubsetLoadBalancer::initSelectorFallbackSubset(
 }
 
 HostConstSharedPtr SubsetLoadBalancer::chooseHost(LoadBalancerContext* context) {
+  ENVOY_LOG(info, "filename = {}...line = {}", __FILE__, __LINE__);
   HostConstSharedPtr override_host = LoadBalancerContextBase::selectOverrideHost(
       cross_priority_host_map_.get(), override_host_status_, context);
   if (override_host != nullptr) {

@@ -150,6 +150,7 @@ absl::optional<uint32_t> AggregateClusterLoadBalancer::LoadBalancerImpl::hostToL
 
 Upstream::HostConstSharedPtr
 AggregateClusterLoadBalancer::LoadBalancerImpl::chooseHost(Upstream::LoadBalancerContext* context) {
+  ENVOY_LOG(info, "ASHER: in AggregateClusterLoadBalancer::LoadBalancerImpl::chooseHost");
   const Upstream::HealthyAndDegradedLoad* priority_loads = nullptr;
   if (context != nullptr) {
     priority_loads = &context->determinePriorityLoad(
@@ -174,6 +175,7 @@ AggregateClusterLoadBalancer::LoadBalancerImpl::chooseHost(Upstream::LoadBalance
 
 Upstream::HostConstSharedPtr
 AggregateClusterLoadBalancer::chooseHost(Upstream::LoadBalancerContext* context) {
+  ENVOY_LOG(info, "filename = {}...line = {}", __FILE__, __LINE__);
   if (load_balancer_) {
     return load_balancer_->chooseHost(context);
   }

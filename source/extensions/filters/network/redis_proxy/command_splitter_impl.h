@@ -306,7 +306,7 @@ private:
  * to create Request objects.
  */
 template <class RequestClass>
-class CommandHandlerFactory : public CommandHandler, CommandHandlerBase {
+class CommandHandlerFactory : public CommandHandler, CommandHandlerBase, Logger::Loggable<Logger::Id::redis> {
 public:
   CommandHandlerFactory(Router& router) : CommandHandlerBase(router) {}
   SplitRequestPtr startRequest(Common::Redis::RespValuePtr&& request, SplitCallbacks& callbacks,

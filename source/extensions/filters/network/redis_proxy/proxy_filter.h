@@ -71,7 +71,8 @@ using ProxyFilterConfigSharedPtr = std::shared_ptr<ProxyFilterConfig>;
  */
 class ProxyFilter : public Network::ReadFilter,
                     public Common::Redis::DecoderCallbacks,
-                    public Network::ConnectionCallbacks {
+                    public Network::ConnectionCallbacks,
+                    public Logger::Loggable<Logger::Id::redis> {
 public:
   ProxyFilter(Common::Redis::DecoderFactory& factory, Common::Redis::EncoderPtr&& encoder,
               CommandSplitter::Instance& splitter, ProxyFilterConfigSharedPtr config);
@@ -92,6 +93,8 @@ public:
 
   bool connectionAllowed() { return connection_allowed_; }
 
+  //ASHER - SplitCallbacks implementation
+
 private:
   friend class RedisProxyFilterTest;
 
@@ -109,6 +112,10 @@ private:
       parent_.onResponse(*this, std::move(value));
     }
 
+    // Methods for handling Redis transactions.
+    void startTransaction() override { parent_.startTransaction(); }
+    bool inTransaction() override { return parent_.inTransaction(); }
+
     ProxyFilter& parent_;
     Common::Redis::RespValuePtr pending_response_;
     CommandSplitter::SplitRequestPtr request_handle_;
@@ -118,6 +125,10 @@ private:
   void onAuth(PendingRequest& request, const std::string& username, const std::string& password);
   void onResponse(PendingRequest& request, Common::Redis::RespValuePtr&& value);
 
+  // Methods for handling Redis transactions.
+  void startTransaction() { is_transaction_ = true; }
+  bool inTransaction() { return is_transaction_; }
+
   Common::Redis::DecoderPtr decoder_;
   Common::Redis::EncoderPtr encoder_;
   CommandSplitter::Instance& splitter_;
@@ -126,6 +137,7 @@ private:
   Network::ReadFilterCallbacks* callbacks_{};
   std::list<PendingRequest> pending_requests_;
   bool connection_allowed_;
+  bool is_transaction_;
 };
 
 } // namespace RedisProxy

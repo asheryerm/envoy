@@ -59,6 +59,16 @@ public:
    * @param value supplies the response which is now owned by the callee.
    */
   virtual void onResponse(Common::Redis::RespValuePtr&& value) PURE;
+
+  /**
+   * Called when a MULTI command is received in order to initiate a Redis transaction.
+   */
+  virtual void startTransaction() {};
+
+  /**
+   * @return bool true if a Redis transaction has been started with a MULTI command.
+   */
+  virtual bool inTransaction() { return false; };
 };
 
 /**

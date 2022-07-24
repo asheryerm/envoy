@@ -2,6 +2,7 @@
 
 #include "source/common/common/logger.h"
 #include "source/extensions/filters/network/common/redis/supported_commands.h"
+#include <execinfo.h>
 
 namespace Envoy {
 namespace Extensions {
@@ -27,7 +28,7 @@ ConnPool::DoNothingPoolCallbacks null_pool_callbacks;
 Common::Redis::Client::PoolRequest* makeSingleServerRequest(
     const RouteSharedPtr& route, const std::string& command, const std::string& key,
     Common::Redis::RespValueConstSharedPtr incoming_request, ConnPool::PoolCallbacks& callbacks) {
-    
+
   auto handler =
       route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks);
   if (handler) {
@@ -55,6 +56,7 @@ Common::Redis::Client::PoolRequest*
 makeFragmentedRequest(const RouteSharedPtr& route, const std::string& command,
                       const std::string& key, const Common::Redis::RespValue& incoming_request,
                       ConnPool::PoolCallbacks& callbacks) {
+
   auto handler =
       route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks);
   if (handler) {
@@ -91,7 +93,6 @@ SingleServerRequest::~SingleServerRequest() { ASSERT(!handle_); }
 void SingleServerRequest::onResponse(Common::Redis::RespValuePtr&& response) {
   handle_ = nullptr;
   updateStats(true);
-  ENVOY_LOG(debug, "ASHER: in SingleServerRequest::onResponse");
   callbacks_.onResponse(std::move(response));
 }
 
@@ -144,10 +145,16 @@ SplitRequestPtr SimpleRequest::create(Router& router,
                                       Common::Redis::RespValuePtr&& incoming_request,
                                       SplitCallbacks& callbacks, CommandStats& command_stats,
                                       TimeSource& time_source, bool delay_command_latency) {
+
+  ENVOY_LOG(info, "ASHER: In SimpleRequest::create");
+
+  if (callbacks.inTransaction()) {
+    ENVOY_LOG(info, "ASHER: !!!! Simple request within transaction !!!");
+  }
+
   std::unique_ptr<SimpleRequest> request_ptr{
       new SimpleRequest(callbacks, command_stats, time_source, delay_command_latency)};
   const auto route = router.upstreamPool(incoming_request->asArray()[1].asString());
-  ENVOY_LOG(info, "ASHER: In SimpleRequest::create");
   if (route) {
     Common::Redis::RespValueSharedPtr base_request = std::move(incoming_request);
     request_ptr->handle_ =
@@ -466,15 +473,14 @@ InstanceImpl::InstanceImpl(RouterPtr&& router, Stats::Scope& scope, const std::s
 SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
                                           SplitCallbacks& callbacks,
                                           Event::Dispatcher& dispatcher) {
+
   if ((request->type() != Common::Redis::RespType::Array) || request->asArray().empty()) {
-    ENVOY_LOG(info, "ASHER: Calling onInvalidRequest1");
     onInvalidRequest(callbacks);
     return nullptr;
   }
 
   for (const Common::Redis::RespValue& value : request->asArray()) {
     if (value.type() != Common::Redis::RespType::BulkString) {
-      ENVOY_LOG(info, "ASHER: Calling onInvalidRequest2");
       onInvalidRequest(callbacks);
       return nullptr;
     }
@@ -484,7 +490,6 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
 
   if (to_lower_string == Common::Redis::SupportedCommands::auth()) {
     if (request->asArray().size() < 2) {
-      ENVOY_LOG(info, "ASHER: Calling onInvalidRequest3");
       onInvalidRequest(callbacks);
       return nullptr;
     }
@@ -511,9 +516,25 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
     return nullptr;
   }
 
-  if (request->asArray().size() < 2) {
-    // Commands other than PING all have at least two arguments.
-    ENVOY_LOG(info, "ASHER: Calling onInvalidRequest4");
+  //ASHER - multi command
+  if (to_lower_string == Common::Redis::SupportedCommands::multi()) {
+    // Start a new transaction if there is no active transaction.
+    if (!callbacks.inTransaction()) {
+      // Mark this connection as a start of a transaction.
+      callbacks.startTransaction();
+      // Respond to MULTI locally with OK, do not forward to server.
+      Common::Redis::RespValuePtr ok_response(new Common::Redis::RespValue());
+      ok_response->type(Common::Redis::RespType::SimpleString);
+      ok_response->asString() = Response::get().OK;
+      callbacks.onResponse(std::move(ok_response));
+
+      return nullptr;
+    }
+  }
+
+  // Commands other than PING and the transaction commands all have at least two arguments.
+  if (request->asArray().size() < 2 && 
+      !Common::Redis::SupportedCommands::transactionCommands().count(to_lower_string.c_str())) {
     onInvalidRequest(callbacks);
     return nullptr;
   }
@@ -525,6 +546,16 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
     callbacks.onResponse(Common::Redis::Utility::makeError(
         fmt::format("unsupported command '{}'", request->asArray()[0].asString())));
     return nullptr;
+  }
+
+  //ASHER - handle transactions
+  if (callbacks.inTransaction()) {
+    // We only support simple commands within transactions
+    if (!Common::Redis::SupportedCommands::simpleCommands().count(to_lower_string.c_str())) {
+      callbacks.onResponse(Common::Redis::Utility::makeError(
+      fmt::format("unsupported command '{}' within transaction", request->asArray()[0].asString())));
+      return nullptr;
+    }
   }
 
   // Fault Injection Check
@@ -570,7 +601,6 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
 
 void InstanceImpl::onInvalidRequest(SplitCallbacks& callbacks) {
   stats_.invalid_request_.inc();
-  ENVOY_LOG(info, "ASHER: received invalid request");
   callbacks.onResponse(Common::Redis::Utility::makeError(Response::get().InvalidRequest));
 }
 

@@ -12,7 +12,8 @@ namespace Network {
  * This client connection factory handles the connection if the remote address type is either ip or
  * pipe.
  */
-class DefaultClientConnectionFactory : public ClientConnectionFactory {
+class DefaultClientConnectionFactory : public ClientConnectionFactory,
+                                       public Logger::Loggable<Logger::Id::redis> {
 public:
   ~DefaultClientConnectionFactory() override = default;
 

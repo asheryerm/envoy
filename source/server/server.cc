@@ -868,7 +868,6 @@ RunHelper::RunHelper(Instance& instance, const Options& options, Event::Dispatch
       maybe_resume_rds = cm.adsMux()->pause(type_url);
     }
 
-    ENVOY_LOG(info, "ASHER: all clusters initialized. initializing init manager");
     init_manager.initialize(init_watcher_);
 
     // Now that we're execute all the init callbacks we can resume RDS

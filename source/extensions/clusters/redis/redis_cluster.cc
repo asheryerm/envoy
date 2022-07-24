@@ -302,6 +302,7 @@ void RedisCluster::RedisDiscoverySession::startResolveRedis() {
     client->client_->addConnectionCallbacks(*client);
   }
 
+  ENVOY_LOG(info, "ASHER: makeRequest1");
   current_request_ = client->client_->makeRequest(ClusterSlotsRequest::instance_, *this);
 }
 
@@ -343,7 +344,6 @@ void RedisCluster::RedisDiscoverySession::resolveClusterHostnames(
            hostname_resolution_required_cnt](Network::DnsResolver::ResolutionStatus status,
                                              std::list<Network::DnsResponse>&& response) -> void {
             auto& slot = (*slots)[slot_idx];
-            ENVOY_LOG(debug, "ASHER: async DNS resolution complete for {}", slot.primary_hostname_);
             updateDnsStats(status, response.empty());
             // If DNS resolution for a primary fails, we stop resolution for remaining, and reset
             // the timer.

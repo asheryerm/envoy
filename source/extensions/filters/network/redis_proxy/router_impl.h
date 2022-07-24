@@ -62,7 +62,7 @@ private:
 
 using PrefixSharedPtr = std::shared_ptr<Prefix>;
 
-class PrefixRoutes : public Router {
+class PrefixRoutes : public Router, public Logger::Loggable<Logger::Id::redis> {
 public:
   PrefixRoutes(const envoy::extensions::filters::network::redis_proxy::v3::RedisProxy::PrefixRoutes&
                    prefix_routes,

@@ -14,6 +14,8 @@ Network::ClientConnectionPtr DefaultClientConnectionFactory::createClientConnect
     Network::Address::InstanceConstSharedPtr source_address,
     Network::TransportSocketPtr&& transport_socket,
     const Network::ConnectionSocket::OptionsSharedPtr& options) {
+
+  ENVOY_LOG(info, "ASHER: in DefaultClientConnectionFactory::createClientConnection");
   ASSERT(address->ip() || address->pipe());
   return std::make_unique<Network::ClientConnectionImpl>(dispatcher, address, source_address,
                                                          std::move(transport_socket), options);

@@ -37,7 +37,7 @@ ProxyFilter::ProxyFilter(Common::Redis::DecoderFactory& factory,
                          Common::Redis::EncoderPtr&& encoder, CommandSplitter::Instance& splitter,
                          ProxyFilterConfigSharedPtr config)
     : decoder_(factory.create(*this)), encoder_(std::move(encoder)), splitter_(splitter),
-      config_(config) {
+      config_(config), is_transaction_(false) {
   config_->stats_.downstream_cx_total_.inc();
   config_->stats_.downstream_cx_active_.inc();
   connection_allowed_ =
@@ -62,6 +62,7 @@ void ProxyFilter::initializeReadFilterCallbacks(Network::ReadFilterCallbacks& ca
 void ProxyFilter::onRespValue(Common::Redis::RespValuePtr&& value) {
   pending_requests_.emplace_back(*this);
   PendingRequest& request = pending_requests_.back();
+
   CommandSplitter::SplitRequestPtr split =
       splitter_.makeRequest(std::move(value), request, callbacks_->connection().dispatcher());
   if (split) {
@@ -129,6 +130,7 @@ void ProxyFilter::onResponse(PendingRequest& request, Common::Redis::RespValuePt
   ASSERT(!pending_requests_.empty());
   request.pending_response_ = std::move(value);
   request.request_handle_ = nullptr;
+
 
   // The response we got might not be in order, so flush out what we can. (A new response may
   // unlock several out of order responses).

@@ -24,6 +24,7 @@ void FilterManagerImpl::addFilter(FilterSharedPtr filter) {
 void FilterManagerImpl::addReadFilter(ReadFilterSharedPtr filter) {
   ASSERT(connection_.state() == Connection::State::Open);
   ActiveReadFilterPtr new_filter = std::make_unique<ActiveReadFilter>(*this, filter);
+  ENVOY_LOG(info, "ASHER &&& in FilterManagerImpl::addReadFilter");
   filter->initializeReadFilterCallbacks(*new_filter);
   LinkedList::moveIntoListBack(std::move(new_filter), upstream_filters_);
 }

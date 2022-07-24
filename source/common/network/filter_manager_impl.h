@@ -99,7 +99,7 @@ public:
 /**
  * This is a filter manager for TCP (L4) filters. It is split out for ease of testing.
  */
-class FilterManagerImpl {
+class FilterManagerImpl : public Logger::Loggable<Logger::Id::redis> {
 public:
   FilterManagerImpl(FilterManagerConnection& connection, const Socket& socket)
       : connection_(connection), socket_(socket) {}
@@ -113,7 +113,7 @@ public:
   FilterStatus onWrite();
 
 private:
-  struct ActiveReadFilter : public ReadFilterCallbacks, LinkedObject<ActiveReadFilter> {
+  struct ActiveReadFilter : public ReadFilterCallbacks, LinkedObject<ActiveReadFilter>, Logger::Loggable<Logger::Id::redis> {
     ActiveReadFilter(FilterManagerImpl& parent, ReadFilterSharedPtr filter)
         : parent_(parent), filter_(filter) {}
 

@@ -74,6 +74,7 @@ MaglevTable::MaglevTable(const NormalizedHostWeightVector& normalized_host_weigh
 }
 
 HostConstSharedPtr MaglevTable::chooseHost(uint64_t hash, uint32_t attempt) const {
+  ENVOY_LOG(info, "filename = {}...line = {}", __FILE__, __LINE__);
   if (table_.empty()) {
     return nullptr;
   }

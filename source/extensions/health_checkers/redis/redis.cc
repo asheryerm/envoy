@@ -76,9 +76,13 @@ void RedisHealthChecker::RedisActiveHealthCheckSession::onInterval() {
 
   switch (parent_.type_) {
   case Type::Exists:
+  ENVOY_LOG(info, "ASHER: makeRequest40");
+
     current_request_ = client_->makeRequest(existsHealthCheckRequest(parent_.key_), *this);
     break;
   case Type::Ping:
+  ENVOY_LOG(info, "ASHER: makeRequest41");
+
     current_request_ = client_->makeRequest(pingHealthCheckRequest(), *this);
     break;
   }

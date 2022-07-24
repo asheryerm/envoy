@@ -49,6 +49,13 @@ struct SupportedCommands {
   }
 
   /**
+   * @return commands which are used for handling redis transactions
+   */
+  static const absl::flat_hash_set<std::string>& transactionCommands() {
+    CONSTRUCT_ON_FIRST_USE(absl::flat_hash_set<std::string>, "multi", "exec", "discard");
+  }
+
+  /**
    * @return auth command
    */
   static const std::string& auth() { CONSTRUCT_ON_FIRST_USE(std::string, "auth"); }
@@ -68,10 +75,15 @@ struct SupportedCommands {
    */
   static const std::string& ping() { CONSTRUCT_ON_FIRST_USE(std::string, "ping"); }
 
-    /**
+  /**
    * @return multi command
    */
   static const std::string& multi() { CONSTRUCT_ON_FIRST_USE(std::string, "multi"); }
+
+  /**
+   * @return exec command
+   */
+  static const std::string& exec() { CONSTRUCT_ON_FIRST_USE(std::string, "exec"); }
 
   /**
    * @return commands which alters the state of redis

@@ -52,7 +52,8 @@ public:
   void onFailure() override{};
 };
 
-class InstanceImpl : public Instance, public std::enable_shared_from_this<InstanceImpl> {
+class InstanceImpl : public Instance, public std::enable_shared_from_this<InstanceImpl>,
+                     public Logger::Loggable<Logger::Id::redis> {
 public:
   InstanceImpl(
       const std::string& cluster_name, Upstream::ClusterManager& cm,

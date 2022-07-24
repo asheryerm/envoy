@@ -32,6 +32,7 @@ CodecClient::CodecClient(CodecType type, Network::ClientConnectionPtr&& connecti
     connection_->detectEarlyCloseWhenReadDisabled(false);
   }
   connection_->addConnectionCallbacks(*this);
+  ENVOY_LOG(info, "ASHER &&& CodecClient::CodecClient");
   connection_->addReadFilter(Network::ReadFilterSharedPtr{new CodecReadFilter(*this)});
 
   if (idle_timeout_) {

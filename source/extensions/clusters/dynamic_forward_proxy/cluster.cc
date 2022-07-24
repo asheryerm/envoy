@@ -150,6 +150,8 @@ void Cluster::onDnsHostRemove(const std::string& host) {
 
 Upstream::HostConstSharedPtr
 Cluster::LoadBalancer::chooseHost(Upstream::LoadBalancerContext* context) {
+
+  ENVOY_LOG(info, "ASHER: in Cluster::LoadBalancer::chooseHost");
   if (!context) {
     return nullptr;
   }
