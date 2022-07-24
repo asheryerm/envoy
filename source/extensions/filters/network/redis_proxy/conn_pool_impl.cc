@@ -72,7 +72,7 @@ InstanceImpl::makeRequest(const std::string& key, RespVariant&& request,
                           PoolCallbacks& callbacks, bool in_transaction) {
 
   ENVOY_LOG(info, "ASHER: $$$$####@@@@@ inTransaction = {}", in_transaction ? "true" : "false");
-  return tls_->getTyped<ThreadLocalPool>().makeRequest(key, std::move(request), callbacks);
+  return tls_->getTyped<ThreadLocalPool>().makeRequest(key, std::move(request), callbacks, in_transaction);
 }
 
 // This method is always called from a InstanceSharedPtr we don't have to worry about tls_->getTyped
