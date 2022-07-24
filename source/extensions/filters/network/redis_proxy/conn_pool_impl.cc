@@ -229,6 +229,7 @@ void InstanceImpl::ThreadLocalPool::drainClients() {
 
 InstanceImpl::ThreadLocalActiveClientPtr&
 InstanceImpl::ThreadLocalPool::threadLocalActiveClient(Upstream::HostConstSharedPtr host) {
+  ENVOY_LOG("ASHER: ##### in threadLocalActiveClient");
   ThreadLocalActiveClientPtr& client = client_map_[host];
   if (!client) {
     client = std::make_unique<ThreadLocalActiveClient>(*this);
