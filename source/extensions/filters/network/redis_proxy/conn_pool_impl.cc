@@ -68,7 +68,10 @@ void InstanceImpl::init() {
 // This method is always called from a InstanceSharedPtr we don't have to worry about tls_->getTyped
 // failing due to InstanceImpl going away.
 Common::Redis::Client::PoolRequest*
-InstanceImpl::makeRequest(const std::string& key, RespVariant&& request, PoolCallbacks& callbacks) {
+InstanceImpl::makeRequest(const std::string& key, RespVariant&& request,
+                          PoolCallbacks& callbacks, bool in_transaction) {
+
+  ENVOY_LOG(info, "ASHER: $$$$####@@@@@ inTransaction = {}", in_transaction ? "true" : "false");
   return tls_->getTyped<ThreadLocalPool>().makeRequest(key, std::move(request), callbacks);
 }
 
@@ -229,7 +232,7 @@ void InstanceImpl::ThreadLocalPool::drainClients() {
 
 InstanceImpl::ThreadLocalActiveClientPtr&
 InstanceImpl::ThreadLocalPool::threadLocalActiveClient(Upstream::HostConstSharedPtr host) {
-  ENVOY_LOG("ASHER: ##### in threadLocalActiveClient");
+  ENVOY_LOG(info, "ASHER: ##### in threadLocalActiveClient");
   ThreadLocalActiveClientPtr& client = client_map_[host];
   if (!client) {
     client = std::make_unique<ThreadLocalActiveClient>(*this);
@@ -250,7 +253,7 @@ InstanceImpl::ThreadLocalPool::makeRequest(const std::string& key, RespVariant&&
     ASSERT(host_set_member_update_cb_handle_ == nullptr);
     return nullptr;
   }
-
+  
   Clusters::Redis::RedisLoadBalancerContextImpl lb_context(key, config_->enableHashtagging(),
                                                            is_redis_cluster_, getRequest(request),
                                                            config_->readPolicy());

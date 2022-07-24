@@ -27,15 +27,16 @@ ConnPool::DoNothingPoolCallbacks null_pool_callbacks;
  */
 Common::Redis::Client::PoolRequest* makeSingleServerRequest(
     const RouteSharedPtr& route, const std::string& command, const std::string& key,
-    Common::Redis::RespValueConstSharedPtr incoming_request, ConnPool::PoolCallbacks& callbacks) {
+    Common::Redis::RespValueConstSharedPtr incoming_request,
+    ConnPool::PoolCallbacks& callbacks, bool in_transaction) {
 
   auto handler =
-      route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks);
+      route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks, in_transaction);
   if (handler) {
     for (auto& mirror_policy : route->mirrorPolicies()) {
       if (mirror_policy->shouldMirror(command)) {
         mirror_policy->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request),
-                                               null_pool_callbacks);
+                                               null_pool_callbacks, in_transaction);
       }
     }
   }
@@ -58,12 +59,12 @@ makeFragmentedRequest(const RouteSharedPtr& route, const std::string& command,
                       ConnPool::PoolCallbacks& callbacks) {
 
   auto handler =
-      route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks);
+      route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks, false);
   if (handler) {
     for (auto& mirror_policy : route->mirrorPolicies()) {
       if (mirror_policy->shouldMirror(command)) {
         mirror_policy->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request),
-                                               null_pool_callbacks);
+                                               null_pool_callbacks, false);
       }
     }
   }
@@ -152,14 +153,21 @@ SplitRequestPtr SimpleRequest::create(Router& router,
     ENVOY_LOG(info, "ASHER: !!!! Simple request within transaction !!!");
   }
 
+  ENVOY_LOG(info, "ASHER: 111");
   std::unique_ptr<SimpleRequest> request_ptr{
       new SimpleRequest(callbacks, command_stats, time_source, delay_command_latency)};
+  ENVOY_LOG(info, "ASHER: 222");
   const auto route = router.upstreamPool(incoming_request->asArray()[1].asString());
+  ENVOY_LOG(info, "ASHER: 333");
   if (route) {
     Common::Redis::RespValueSharedPtr base_request = std::move(incoming_request);
+  ENVOY_LOG(info, "ASHER: 444");
+  //ASHER - Edit here
     request_ptr->handle_ =
         makeSingleServerRequest(route, base_request->asArray()[0].asString(),
-                                base_request->asArray()[1].asString(), base_request, *request_ptr);
+                                base_request->asArray()[1].asString(), base_request,
+                                *request_ptr, callbacks.inTransaction());
+  ENVOY_LOG(info, "ASHER: 555");
   } else {
     ENVOY_LOG(debug, "route not found: '{}'", incoming_request->toString());
   }
@@ -192,7 +200,7 @@ SplitRequestPtr EvalRequest::create(Router& router, Common::Redis::RespValuePtr&
     Common::Redis::RespValueSharedPtr base_request = std::move(incoming_request);
     request_ptr->handle_ =
         makeSingleServerRequest(route, base_request->asArray()[0].asString(),
-                                base_request->asArray()[3].asString(), base_request, *request_ptr);
+                                base_request->asArray()[3].asString(), base_request, *request_ptr, false);
   }
 
   if (!request_ptr->handle_) {

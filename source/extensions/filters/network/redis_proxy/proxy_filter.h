@@ -126,8 +126,8 @@ private:
   void onResponse(PendingRequest& request, Common::Redis::RespValuePtr&& value);
 
   // Methods for handling Redis transactions.
-  void startTransaction() { is_transaction_ = true; }
-  bool inTransaction() { return is_transaction_; }
+  void startTransaction() { in_transaction_ = true; }
+  bool inTransaction() { return in_transaction_; }
 
   Common::Redis::DecoderPtr decoder_;
   Common::Redis::EncoderPtr encoder_;
@@ -137,7 +137,7 @@ private:
   Network::ReadFilterCallbacks* callbacks_{};
   std::list<PendingRequest> pending_requests_;
   bool connection_allowed_;
-  bool is_transaction_;
+  bool in_transaction_;
 };
 
 } // namespace RedisProxy
