@@ -6,6 +6,7 @@
 #include "envoy/event/dispatcher.h"
 
 #include "source/extensions/filters/network/common/redis/codec.h"
+#include "source/extensions/filters/network/common/redis/client.h"
 
 namespace Envoy {
 namespace Extensions {
@@ -61,14 +62,9 @@ public:
   virtual void onResponse(Common::Redis::RespValuePtr&& value) PURE;
 
   /**
-   * Called when a MULTI command is received in order to initiate a Redis transaction.
+   * @return the struct containing the Redis transaction state.
    */
-  virtual void startTransaction() {};
-
-  /**
-   * @return bool true if a Redis transaction has been started with a MULTI command.
-   */
-  virtual bool inTransaction() { return false; };
+  virtual Common::Redis::Client::RedisTransactionInfo& redisTransactionInfo() PURE;
 };
 
 /**

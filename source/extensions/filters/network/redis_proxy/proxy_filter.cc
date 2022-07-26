@@ -11,6 +11,8 @@
 #include "source/common/config/datasource.h"
 #include "source/common/config/utility.h"
 
+#include <execinfo.h>
+
 namespace Envoy {
 namespace Extensions {
 namespace NetworkFilters {
@@ -37,7 +39,15 @@ ProxyFilter::ProxyFilter(Common::Redis::DecoderFactory& factory,
                          Common::Redis::EncoderPtr&& encoder, CommandSplitter::Instance& splitter,
                          ProxyFilterConfigSharedPtr config)
     : decoder_(factory.create(*this)), encoder_(std::move(encoder)), splitter_(splitter),
-      config_(config), in_transaction_(false) {
+      config_(config) {
+  ENVOY_LOG(info, "ASHER: new ProxyFilter");
+    void *array[1024];
+    int size = backtrace(array, 1024);
+    char **strings = backtrace_symbols(array, size);
+    ENVOY_LOG(info, "Obtained {} stack frames.", size);
+    for (int i = 0; i < size; i++)
+      ENVOY_LOG(info, "{}", strings[i]);
+    free(strings);
   config_->stats_.downstream_cx_total_.inc();
   config_->stats_.downstream_cx_active_.inc();
   connection_allowed_ =
@@ -60,9 +70,11 @@ void ProxyFilter::initializeReadFilterCallbacks(Network::ReadFilterCallbacks& ca
 }
 
 void ProxyFilter::onRespValue(Common::Redis::RespValuePtr&& value) {
+  ENVOY_LOG(info, "ASHER: Creating new PendingRequest (SplitCallbacks)");
   pending_requests_.emplace_back(*this);
   PendingRequest& request = pending_requests_.back();
 
+  ENVOY_LOG(info, "ASHER: call makeRequest on the splitter, this should call InstanceImpl::makeRequest");
   CommandSplitter::SplitRequestPtr split =
       splitter_.makeRequest(std::move(value), request, callbacks_->connection().dispatcher());
   if (split) {
@@ -167,7 +179,9 @@ Network::FilterStatus ProxyFilter::onData(Buffer::Instance& data, bool) {
   }
 }
 
-ProxyFilter::PendingRequest::PendingRequest(ProxyFilter& parent) : parent_(parent) {
+ProxyFilter::PendingRequest::PendingRequest(ProxyFilter& parent) : 
+      parent_(parent) {
+  ENVOY_LOG(info, "ASHER: Initializing PendingRequest");
   parent.config_->stats_.downstream_rq_total_.inc();
   parent.config_->stats_.downstream_rq_active_.inc();
 }

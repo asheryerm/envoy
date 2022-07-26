@@ -112,9 +112,9 @@ private:
       parent_.onResponse(*this, std::move(value));
     }
 
-    // Methods for handling Redis transactions.
-    void startTransaction() override { parent_.startTransaction(); }
-    bool inTransaction() override { return parent_.inTransaction(); }
+    Common::Redis::Client::RedisTransactionInfo& redisTransactionInfo() override { 
+      return parent_.redis_transaction_info; 
+    }
 
     ProxyFilter& parent_;
     Common::Redis::RespValuePtr pending_response_;
@@ -125,10 +125,6 @@ private:
   void onAuth(PendingRequest& request, const std::string& username, const std::string& password);
   void onResponse(PendingRequest& request, Common::Redis::RespValuePtr&& value);
 
-  // Methods for handling Redis transactions.
-  void startTransaction() { in_transaction_ = true; }
-  bool inTransaction() { return in_transaction_; }
-
   Common::Redis::DecoderPtr decoder_;
   Common::Redis::EncoderPtr encoder_;
   CommandSplitter::Instance& splitter_;
@@ -137,7 +133,8 @@ private:
   Network::ReadFilterCallbacks* callbacks_{};
   std::list<PendingRequest> pending_requests_;
   bool connection_allowed_;
-  bool in_transaction_;
+
+  Common::Redis::Client::RedisTransactionInfo redis_transaction_info;
 };
 
 } // namespace RedisProxy

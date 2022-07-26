@@ -61,7 +61,8 @@ public:
    *         for some reason.
    */
   virtual Common::Redis::Client::PoolRequest*
-  makeRequest(const std::string& hash_key, RespVariant&& request, PoolCallbacks& callbacks, bool in_transaction) PURE;
+  makeRequest(const std::string& hash_key, RespVariant&& request, 
+              PoolCallbacks& callbacks, Common::Redis::Client::RedisTransactionInfo& redis_transaction_info) PURE;
 };
 
 using InstanceSharedPtr = std::shared_ptr<Instance>;

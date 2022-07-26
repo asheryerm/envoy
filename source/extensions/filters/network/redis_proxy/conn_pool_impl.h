@@ -65,7 +65,8 @@ public:
       Extensions::Common::Redis::ClusterRefreshManagerSharedPtr refresh_manager);
   // RedisProxy::ConnPool::Instance
   Common::Redis::Client::PoolRequest* makeRequest(const std::string& key, RespVariant&& request,
-                                                  PoolCallbacks& callbacks, bool in_transaction) override;
+                                                  PoolCallbacks& callbacks,
+                                                  Common::Redis::Client::RedisTransactionInfo& redis_transaction_info) override;
   /**
    * Makes a redis request based on IP address and TCP port of the upstream host (e.g.,
    * moved/ask cluster redirection). This is now only kept mostly for testing.
@@ -132,7 +133,8 @@ private:
     ~ThreadLocalPool() override;
     ThreadLocalActiveClientPtr& threadLocalActiveClient(Upstream::HostConstSharedPtr host);
     Common::Redis::Client::PoolRequest* makeRequest(const std::string& key, RespVariant&& request,
-                                                    PoolCallbacks& callbacks);
+                                                    PoolCallbacks& callbacks,
+                                                    Common::Redis::Client::RedisTransactionInfo& redis_transaction_info);
     Common::Redis::Client::PoolRequest*
     makeRequestToHost(const std::string& host_address, const Common::Redis::RespValue& request,
                       Common::Redis::Client::ClientCallbacks& callbacks);

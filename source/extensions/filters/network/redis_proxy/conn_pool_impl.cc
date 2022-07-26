@@ -48,12 +48,15 @@ InstanceImpl::InstanceImpl(
       stats_scope_(std::move(stats_scope)),
       redis_command_stats_(redis_command_stats), redis_cluster_stats_{REDIS_CLUSTER_STATS(
                                                      POOL_COUNTER(*stats_scope_))},
-      refresh_manager_(std::move(refresh_manager)) {}
+      refresh_manager_(std::move(refresh_manager)) {
+
+      }
 
 void InstanceImpl::init() {
   // Note: `this` and `cluster_name` have a a lifetime of the filter.
   // That may be shorter than the tls callback if the listener is torn down shortly after it is
   // created. We use a weak pointer to make sure this object outlives the tls callbacks.
+  ENVOY_LOG(info, "ASHER: #### starting InstanceImpl::init()");
   std::weak_ptr<InstanceImpl> this_weak_ptr = this->shared_from_this();
   tls_->set(
       [this_weak_ptr](Event::Dispatcher& dispatcher) -> ThreadLocal::ThreadLocalObjectSharedPtr {
@@ -69,10 +72,9 @@ void InstanceImpl::init() {
 // failing due to InstanceImpl going away.
 Common::Redis::Client::PoolRequest*
 InstanceImpl::makeRequest(const std::string& key, RespVariant&& request,
-                          PoolCallbacks& callbacks, bool in_transaction) {
-
-  ENVOY_LOG(info, "ASHER: $$$$####@@@@@ inTransaction = {}", in_transaction ? "true" : "false");
-  return tls_->getTyped<ThreadLocalPool>().makeRequest(key, std::move(request), callbacks, in_transaction);
+                          PoolCallbacks& callbacks,
+                          Common::Redis::Client::RedisTransactionInfo& redis_transaction_info) {
+  return tls_->getTyped<ThreadLocalPool>().makeRequest(key, std::move(request), callbacks, redis_transaction_info);
 }
 
 // This method is always called from a InstanceSharedPtr we don't have to worry about tls_->getTyped
@@ -230,9 +232,12 @@ void InstanceImpl::ThreadLocalPool::drainClients() {
   }
 }
 
+//ASHER - from here
 InstanceImpl::ThreadLocalActiveClientPtr&
 InstanceImpl::ThreadLocalPool::threadLocalActiveClient(Upstream::HostConstSharedPtr host) {
   ENVOY_LOG(info, "ASHER: ##### in threadLocalActiveClient");
+
+  //ASHER-check here
   ThreadLocalActiveClientPtr& client = client_map_[host];
   if (!client) {
     client = std::make_unique<ThreadLocalActiveClient>(*this);
@@ -247,7 +252,8 @@ InstanceImpl::ThreadLocalPool::threadLocalActiveClient(Upstream::HostConstShared
 
 Common::Redis::Client::PoolRequest*
 InstanceImpl::ThreadLocalPool::makeRequest(const std::string& key, RespVariant&& request,
-                                           PoolCallbacks& callbacks) {
+                                           PoolCallbacks& callbacks,
+                                           Common::Redis::Client::RedisTransactionInfo& redis_transaction_info) {
   if (cluster_ == nullptr) {
     ASSERT(client_map_.empty());
     ASSERT(host_set_member_update_cb_handle_ == nullptr);
@@ -258,12 +264,17 @@ InstanceImpl::ThreadLocalPool::makeRequest(const std::string& key, RespVariant&&
                                                            is_redis_cluster_, getRequest(request),
                                                            config_->readPolicy());
 
+  
+  ENVOY_LOG(info, "ASHER: $$$$####@@@@@ inTransaction = {}...ptr = {}", redis_transaction_info.in_transaction_ ? "true" : "false", 
+    reinterpret_cast<long>(this));
+
   Upstream::HostConstSharedPtr host = cluster_->loadBalancer().chooseHost(&lb_context);
   if (!host) {
     ENVOY_LOG(debug, "host not found: '{}'", key);
     return nullptr;
   }
 
+  ENVOY_LOG(info, "ASHER address of PoolCallbacks& callbacks = {}", reinterpret_cast<long>(&callbacks));
   pending_requests_.emplace_back(*this, std::move(request), callbacks);
   PendingRequest& pending_request = pending_requests_.back();
   ThreadLocalActiveClientPtr& client = this->threadLocalActiveClient(host);

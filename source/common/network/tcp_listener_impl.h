@@ -14,7 +14,7 @@ namespace Network {
 /**
  * libevent implementation of Network::Listener for TCP.
  */
-class TcpListenerImpl : public BaseListenerImpl {
+class TcpListenerImpl : public BaseListenerImpl, public Logger::Loggable<Logger::Id::redis> {
 public:
   TcpListenerImpl(Event::DispatcherImpl& dispatcher, Random::RandomGenerator& random,
                   Runtime::Loader& runtime, SocketSharedPtr socket, TcpListenerCallbacks& cb,

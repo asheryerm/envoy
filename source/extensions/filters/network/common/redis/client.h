@@ -212,6 +212,15 @@ public:
                            const std::string& auth_password) PURE;
 };
 
+/**
+ * A struct for holding Redis transaction info. 
+*/
+struct RedisTransactionInfo {
+  RedisTransactionInfo() : in_transaction_(false) {}
+  bool in_transaction_;
+  ClientPtr redis_transaction_client_;
+};
+
 } // namespace Client
 } // namespace Redis
 } // namespace Common

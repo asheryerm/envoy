@@ -176,6 +176,7 @@ void ActiveTcpSocket::setDynamicMetadata(const std::string& name,
 }
 
 void ActiveTcpSocket::newConnection() {
+  ENVOY_LOG(info, "ASHER: in ActiveTcpSocket::newConnection()");
   connected_ = true;
 
   // Check if the socket may need to be redirected to another listener.

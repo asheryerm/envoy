@@ -28,15 +28,16 @@ ConnPool::DoNothingPoolCallbacks null_pool_callbacks;
 Common::Redis::Client::PoolRequest* makeSingleServerRequest(
     const RouteSharedPtr& route, const std::string& command, const std::string& key,
     Common::Redis::RespValueConstSharedPtr incoming_request,
-    ConnPool::PoolCallbacks& callbacks, bool in_transaction) {
+    ConnPool::PoolCallbacks& callbacks, 
+    Common::Redis::Client::RedisTransactionInfo& redis_transaction_info) {
 
   auto handler =
-      route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks, in_transaction);
+      route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks, redis_transaction_info);
   if (handler) {
     for (auto& mirror_policy : route->mirrorPolicies()) {
       if (mirror_policy->shouldMirror(command)) {
         mirror_policy->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request),
-                                               null_pool_callbacks, in_transaction);
+                                               null_pool_callbacks, redis_transaction_info);
       }
     }
   }
@@ -58,13 +59,18 @@ makeFragmentedRequest(const RouteSharedPtr& route, const std::string& command,
                       const std::string& key, const Common::Redis::RespValue& incoming_request,
                       ConnPool::PoolCallbacks& callbacks) {
 
+  // We do not support fragmented requests in transactions, so we pass a transaction info
+  // instance that indicates there is no active transaction.
+  static Common::Redis::Client::RedisTransactionInfo no_transaction;
+
   auto handler =
-      route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), callbacks, false);
+      route->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request), 
+                                     callbacks, no_transaction);
   if (handler) {
     for (auto& mirror_policy : route->mirrorPolicies()) {
       if (mirror_policy->shouldMirror(command)) {
         mirror_policy->upstream()->makeRequest(key, ConnPool::RespVariant(incoming_request),
-                                               null_pool_callbacks, false);
+                                               null_pool_callbacks, no_transaction);
       }
     }
   }
@@ -149,7 +155,7 @@ SplitRequestPtr SimpleRequest::create(Router& router,
 
   ENVOY_LOG(info, "ASHER: In SimpleRequest::create");
 
-  if (callbacks.inTransaction()) {
+  if (callbacks.redisTransactionInfo().in_transaction_) {
     ENVOY_LOG(info, "ASHER: !!!! Simple request within transaction !!!");
   }
 
@@ -166,7 +172,7 @@ SplitRequestPtr SimpleRequest::create(Router& router,
     request_ptr->handle_ =
         makeSingleServerRequest(route, base_request->asArray()[0].asString(),
                                 base_request->asArray()[1].asString(), base_request,
-                                *request_ptr, callbacks.inTransaction());
+                                *request_ptr, callbacks.redisTransactionInfo());
   ENVOY_LOG(info, "ASHER: 555");
   } else {
     ENVOY_LOG(debug, "route not found: '{}'", incoming_request->toString());
@@ -192,6 +198,10 @@ SplitRequestPtr EvalRequest::create(Router& router, Common::Redis::RespValuePtr&
     return nullptr;
   }
 
+  // We do not support eval requests in transactions, so we pass a transaction info
+  // instance that indicates there is no active transaction.
+  static Common::Redis::Client::RedisTransactionInfo no_transaction;
+
   std::unique_ptr<EvalRequest> request_ptr{
       new EvalRequest(callbacks, command_stats, time_source, delay_command_latency)};
 
@@ -200,7 +210,8 @@ SplitRequestPtr EvalRequest::create(Router& router, Common::Redis::RespValuePtr&
     Common::Redis::RespValueSharedPtr base_request = std::move(incoming_request);
     request_ptr->handle_ =
         makeSingleServerRequest(route, base_request->asArray()[0].asString(),
-                                base_request->asArray()[3].asString(), base_request, *request_ptr, false);
+                                base_request->asArray()[3].asString(), base_request,
+                                *request_ptr, no_transaction);
   }
 
   if (!request_ptr->handle_) {
@@ -482,6 +493,7 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
                                           SplitCallbacks& callbacks,
                                           Event::Dispatcher& dispatcher) {
 
+  ENVOY_LOG(info, "ASHER: in InstanceImpl::makeRequest");
   if ((request->type() != Common::Redis::RespType::Array) || request->asArray().empty()) {
     onInvalidRequest(callbacks);
     return nullptr;
@@ -527,9 +539,10 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
   //ASHER - multi command
   if (to_lower_string == Common::Redis::SupportedCommands::multi()) {
     // Start a new transaction if there is no active transaction.
-    if (!callbacks.inTransaction()) {
+    if (callbacks.redisTransactionInfo().in_transaction_ == false) {
       // Mark this connection as a start of a transaction.
-      callbacks.startTransaction();
+      ENVOY_LOG(info, "**** ASHER: starting transaction");
+      callbacks.redisTransactionInfo().in_transaction_ = true;
       // Respond to MULTI locally with OK, do not forward to server.
       Common::Redis::RespValuePtr ok_response(new Common::Redis::RespValue());
       ok_response->type(Common::Redis::RespType::SimpleString);
@@ -538,6 +551,12 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
 
       return nullptr;
     }
+  }
+
+  if (callbacks.redisTransactionInfo().in_transaction_) {
+    ENVOY_LOG(info, "**** ASHER: in transaction");
+  } else {
+    ENVOY_LOG(info, "**** ASHER: NOT in transaction");
   }
 
   // Commands other than PING and the transaction commands all have at least two arguments.
@@ -557,7 +576,7 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
   }
 
   //ASHER - handle transactions
-  if (callbacks.inTransaction()) {
+  if (callbacks.redisTransactionInfo().in_transaction_) {
     // We only support simple commands within transactions
     if (!Common::Redis::SupportedCommands::simpleCommands().count(to_lower_string.c_str())) {
       callbacks.onResponse(Common::Redis::Utility::makeError(

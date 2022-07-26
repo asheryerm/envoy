@@ -91,7 +91,8 @@ protected:
 /**
  * SingleServerRequest is a base class for commands that hash to a single backend.
  */
-class SingleServerRequest : public SplitRequestBase, public ConnPool::PoolCallbacks {
+class SingleServerRequest : public SplitRequestBase, public ConnPool::PoolCallbacks
+ {
 public:
   ~SingleServerRequest() override;
 
@@ -100,6 +101,8 @@ public:
   void onFailure() override;
   void onFailure(std::string error_msg);
 
+  //ASHER---Maybe add callbacks here!!
+
   // RedisProxy::CommandSplitter::SplitRequest
   void cancel() override;
 
@@ -107,6 +110,7 @@ protected:
   SingleServerRequest(SplitCallbacks& callbacks, CommandStats& command_stats,
                       TimeSource& time_source, bool delay_command_latency)
       : SplitRequestBase(command_stats, time_source, delay_command_latency), callbacks_(callbacks) {
+        ENVOY_LOG(info, "ASHER: new SingleServerRequest");
   }
 
   SplitCallbacks& callbacks_;
@@ -154,6 +158,10 @@ public:
 
   // RedisProxy::CommandSplitter::SplitRequest
   void cancel() override;
+
+  Common::Redis::Client::RedisTransactionInfo& redisTransactionInfo() override { 
+    return callbacks_.redisTransactionInfo(); 
+  }
 
   SplitRequestPtr wrapped_request_ptr_;
 
