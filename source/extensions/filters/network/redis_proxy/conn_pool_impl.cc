@@ -260,37 +260,109 @@ InstanceImpl::ThreadLocalPool::makeRequest(const std::string& key, RespVariant&&
     return nullptr;
   }
   
-  Clusters::Redis::RedisLoadBalancerContextImpl lb_context(key, config_->enableHashtagging(),
-                                                           is_redis_cluster_, getRequest(request),
-                                                           config_->readPolicy());
-
+  Upstream::HostConstSharedPtr host;
   
-  ENVOY_LOG(info, "ASHER: $$$$####@@@@@ inTransaction = {}...ptr = {}", redis_transaction_info.in_transaction_ ? "true" : "false", 
-    reinterpret_cast<long>(this));
+  // If this is not a redis transaction we use the configured read policy. 
+  // For redis transactions we always pick the primary node.
+  if (redis_transaction_info.in_transaction_ == false) {
+    Clusters::Redis::RedisLoadBalancerContextImpl lb_context(key, config_->enableHashtagging(),
+                                                            is_redis_cluster_, getRequest(request),
+                                                            config_->readPolicy());
+    host = cluster_->loadBalancer().chooseHost(&lb_context);
+  } else {
+      if (redis_transaction_info.connection_established_ == true) {
+        host = redis_transaction_info.host_;
+      } else {
+        Clusters::Redis::RedisLoadBalancerContextImpl lb_context(key, config_->enableHashtagging(),
+                                                                is_redis_cluster_, getRequest(request),
+                                                                NetworkFilters::Common::Redis::Client::ReadPolicy::Primary);
+        host = cluster_->loadBalancer().chooseHost(&lb_context);
+        redis_transaction_info.host_ = host;
+        redis_transaction_info.key_ = key;
+    }
+  }
 
-  Upstream::HostConstSharedPtr host = cluster_->loadBalancer().chooseHost(&lb_context);
   if (!host) {
     ENVOY_LOG(debug, "host not found: '{}'", key);
     return nullptr;
-  }
+  }                             
 
-  ENVOY_LOG(info, "ASHER address of PoolCallbacks& callbacks = {}", reinterpret_cast<long>(&callbacks));
-  pending_requests_.emplace_back(*this, std::move(request), callbacks);
-  PendingRequest& pending_request = pending_requests_.back();
-  ThreadLocalActiveClientPtr& client = this->threadLocalActiveClient(host);
-  pending_request.request_handler_ = client->redis_client_->makeRequest(
+  // If this is a Redis transaction we use a dedicated connection.
+  // Otherwise we use a generic connection to the host.
+  if (redis_transaction_info.in_transaction_ == false) {
+    ThreadLocalActiveClientPtr& client = this->threadLocalActiveClient(host);
+
+    pending_requests_.emplace_back(*this, std::move(request), callbacks);
+    PendingRequest& pending_request = pending_requests_.back();
+
+    pending_request.request_handler_ = client->redis_client_->makeRequest(
       getRequest(pending_request.incoming_request_), pending_request);
-  if (pending_request.request_handler_) {
-    return &pending_request;
+
+    if (pending_request.request_handler_) {
+      return &pending_request;
+    } else {
+      onRequestCompleted();
+      return nullptr;
+    }
   } else {
-    onRequestCompleted();
+    if (redis_transaction_info.connection_established_ == false) {
+      // Create new connection for transaction.
+      ENVOY_LOG(info, "ASHER: 10");
+      createTransactionClient(redis_transaction_info);
+      ENVOY_LOG(info, "ASHER: 11");
+      redis_transaction_info.connection_established_ = true;
+
+      //ASHER-Send MULTI command on the new connection
+      ENVOY_LOG(info, "ASHER: 12");
+      Common::Redis::RespValueSharedPtr multi_command(new Common::Redis::RespValue());
+      ENVOY_LOG(info, "ASHER: 13");
+      multi_command->type(Common::Redis::RespType::SimpleString);
+      ENVOY_LOG(info, "ASHER: 14");
+      multi_command->asString() = "multi";
+      ENVOY_LOG(info, "ASHER: 15");
+
+      pending_requests_.emplace_back(*this, std::move(multi_command), callbacks);
+      PendingRequest& pending_request = pending_requests_.back();
+
+      ENVOY_LOG(info, "ASHER: 16.5");
+
+      const Common::Redis::RespValue& incoming_ = getRequest(pending_request.incoming_request_);
+
+
+      ENVOY_LOG(info, "ASHER: 17");
+
+      pending_request.request_handler_ = redis_transaction_info.redis_transaction_client_->makeRequest(
+        incoming_, pending_request);
+
+      ENVOY_LOG(info, "ASHER: 18");
+
+      if (pending_request.request_handler_) {
+        ENVOY_LOG(info, "ASHER: 19");
+        return &pending_request;
+      } else {
+        ENVOY_LOG(info, "ASHER: 20");
+        onRequestCompleted();
+        return nullptr;
+      }
+
+    }
+
+    ENVOY_LOG(info, "ASHER: using transaction client");
     return nullptr;
+
+    // pending_requests_.emplace_back(*this, std::move(request), callbacks);
+    // PendingRequest& pending_request = pending_requests_.back();
+
+    // pending_request.request_handler_ = redis_transaction_info.redis_transaction_client_->makeRequest(
+    //   getRequest(pending_request.incoming_request_), pending_request);
   }
 }
 
 Common::Redis::Client::PoolRequest* InstanceImpl::ThreadLocalPool::makeRequestToHost(
     const std::string& host_address, const Common::Redis::RespValue& request,
     Common::Redis::Client::ClientCallbacks& callbacks) {
+
+  ENVOY_LOG(info, "ASHER: in InstanceImpl::ThreadLocalPool::makeRequestToHost");
   if (cluster_ == nullptr) {
     ASSERT(client_map_.empty());
     ASSERT(host_set_member_update_cb_handle_ == nullptr);
@@ -448,6 +520,18 @@ void InstanceImpl::PendingRequest::cancel() {
   request_handler_->cancel();
   request_handler_ = nullptr;
   parent_.onRequestCompleted();
+}
+
+//ASHER-createTransactionClient
+void InstanceImpl::ThreadLocalPool::createTransactionClient(Common::Redis::Client::RedisTransactionInfo& redis_transaction_info) {
+    
+    redis_transaction_info.redis_transaction_client_ =
+        client_factory_.create(redis_transaction_info.host_, dispatcher_, *config_, redis_command_stats_, *(stats_scope_),
+                               auth_username_, auth_password_);
+    //ASHER-TODO check this
+    //redis_transaction_info.redis_transaction_client_->addConnectionCallbacks(*client);
+    ENVOY_LOG(info, "ASHER: Created transaction client...ptr = {}", 
+        reinterpret_cast<long>(redis_transaction_info.redis_transaction_client_.get()));
 }
 
 } // namespace ConnPool

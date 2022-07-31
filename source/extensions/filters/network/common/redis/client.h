@@ -217,10 +217,12 @@ public:
 */
 //ASHER-mystruct
 struct RedisTransactionInfo {
-  RedisTransactionInfo() : in_transaction_(false) {}
+  RedisTransactionInfo() : in_transaction_(false), connection_established_(false) {}
   bool in_transaction_;
-  ClientPtr redis_transaction_client_;
+  bool connection_established_;
+  std::string key_;
   Upstream::HostConstSharedPtr host_;
+  ClientPtr redis_transaction_client_;
 };
 
 } // namespace Client

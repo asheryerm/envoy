@@ -78,7 +78,7 @@ public:
 /**
  * Encoder implementation of https://redis.io/topics/protocol
  */
-class EncoderImpl : public Encoder {
+class EncoderImpl : public Encoder, Logger::Loggable<Logger::Id::redis> {
 public:
   // RedisProxy::Encoder
   void encode(const RespValue& value, Buffer::Instance& out) override;

@@ -131,6 +131,7 @@ private:
     ThreadLocalPool(std::shared_ptr<InstanceImpl> parent, Event::Dispatcher& dispatcher,
                     std::string cluster_name);
     ~ThreadLocalPool() override;
+    //ASHER-Add prototypes
     ThreadLocalActiveClientPtr& threadLocalActiveClient(Upstream::HostConstSharedPtr host);
     Common::Redis::Client::PoolRequest* makeRequest(const std::string& key, RespVariant&& request,
                                                     PoolCallbacks& callbacks,
@@ -151,6 +152,10 @@ private:
     void onClusterRemoval(const std::string& cluster_name) override;
 
     void onRequestCompleted();
+
+    // Create a new connection for a Redis transaction
+    void createTransactionClient(Common::Redis::Client::RedisTransactionInfo& redis_transaction_info);
+
 
     std::weak_ptr<InstanceImpl> parent_;
     Event::Dispatcher& dispatcher_;

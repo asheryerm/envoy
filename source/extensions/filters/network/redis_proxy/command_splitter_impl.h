@@ -205,6 +205,23 @@ private:
 };
 
 /**
+ * TransactionRequest handles commands that are part of a Redis transaction.
+ * This includes MULTI, EXEC, DISCARD, and also all the commands that are
+ * part of the transaction.
+ */
+class TransactionRequest : public SingleServerRequest {
+public:
+  static SplitRequestPtr create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
+                                SplitCallbacks& callbacks, CommandStats& command_stats,
+                                TimeSource& time_source, bool delay_command_latency);
+
+private:
+  EvalRequest(SplitCallbacks& callbacks, CommandStats& command_stats, TimeSource& time_source,
+              bool delay_command_latency)
+      : SingleServerRequest(callbacks, command_stats, time_source, delay_command_latency) {}
+};
+
+/**
  * FragmentedRequest is a base class for requests that contains multiple keys. An individual request
  * is sent to the appropriate server for each key. The responses from all servers are combined and
  * returned to the client.

@@ -550,6 +550,8 @@ void DecoderImpl::parseSlice(const Buffer::RawSlice& slice) {
 }
 
 void EncoderImpl::encode(const RespValue& value, Buffer::Instance& out) {
+  ENVOY_LOG(info, "ASHER: EncoderImpl::encode...value = {}", value.toString());
+
   switch (value.type()) {
   case RespType::Array: {
     encodeArray(value.asArray(), out);
@@ -647,6 +649,7 @@ void EncoderImpl::encodeInteger(int64_t integer, Buffer::Instance& out) {
 }
 
 void EncoderImpl::encodeSimpleString(const std::string& string, Buffer::Instance& out) {
+  ENVOY_LOG(info, "ASHER: EncoderImpl::encodeSimpleString...string = {}", string);
   out.add("+", 1);
   out.add(string);
   out.add("\r\n", 2);

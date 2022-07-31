@@ -98,6 +98,7 @@ void SplitRequestBase::updateStats(const bool success) {
 SingleServerRequest::~SingleServerRequest() { ASSERT(!handle_); }
 
 void SingleServerRequest::onResponse(Common::Redis::RespValuePtr&& response) {
+  ENVOY_LOG(info, "ASHER: SingleServerRequest::onResponse...respose = {}", response->toString());
   handle_ = nullptr;
   updateStats(true);
   callbacks_.onResponse(std::move(response));
@@ -162,18 +163,23 @@ SplitRequestPtr SimpleRequest::create(Router& router,
   ENVOY_LOG(info, "ASHER: 111");
   std::unique_ptr<SimpleRequest> request_ptr{
       new SimpleRequest(callbacks, command_stats, time_source, delay_command_latency)};
-  ENVOY_LOG(info, "ASHER: 222");
-  const auto route = router.upstreamPool(incoming_request->asArray()[1].asString());
-  ENVOY_LOG(info, "ASHER: 333");
+
+  // If we have a transaction connection use the first key for routing.
+  RouteSharedPtr route;
+  if (!callbacks.redisTransactionInfo().connection_established_) {
+    route = router.upstreamPool(incoming_request->asArray()[1].asString());
+  } else {
+    route = router.upstreamPool(callbacks.redisTransactionInfo().key_);
+  }
+
   if (route) {
     Common::Redis::RespValueSharedPtr base_request = std::move(incoming_request);
-  ENVOY_LOG(info, "ASHER: 444");
+    ENVOY_LOG(info, "ASHER: 555 base_request->toString() = {}", base_request->toString());
   //ASHER - Edit here
     request_ptr->handle_ =
         makeSingleServerRequest(route, base_request->asArray()[0].asString(),
                                 base_request->asArray()[1].asString(), base_request,
                                 *request_ptr, callbacks.redisTransactionInfo());
-  ENVOY_LOG(info, "ASHER: 555");
   } else {
     ENVOY_LOG(debug, "route not found: '{}'", incoming_request->toString());
   }
@@ -247,6 +253,7 @@ void FragmentedRequest::onChildFailure(uint32_t index) {
 SplitRequestPtr MGETRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
                                     SplitCallbacks& callbacks, CommandStats& command_stats,
                                     TimeSource& time_source, bool delay_command_latency) {
+  //ASHER-MGET code
   std::unique_ptr<MGETRequest> request_ptr{
       new MGETRequest(callbacks, command_stats, time_source, delay_command_latency)};
 

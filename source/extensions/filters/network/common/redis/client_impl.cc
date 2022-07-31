@@ -56,18 +56,12 @@ ClientPtr ClientImpl::create(Upstream::HostConstSharedPtr host, Event::Dispatche
                              const Config& config,
                              const RedisCommandStatsSharedPtr& redis_command_stats,
                              Stats::Scope& scope) {
-  ENVOY_LOG(info, "ASHER &&& ClientImpl::create1");
   auto client = std::make_unique<ClientImpl>(host, dispatcher, std::move(encoder), decoder_factory,
                                              config, redis_command_stats, scope);
-  ENVOY_LOG(info, "ASHER &&& ClientImpl::create2");
   client->connection_ = host->createConnection(dispatcher, nullptr, nullptr).connection_;
-  ENVOY_LOG(info, "ASHER &&& ClientImpl::create3");
   client->connection_->addConnectionCallbacks(*client);
-  ENVOY_LOG(info, "ASHER &&& ClientImpl::create4");
   client->connection_->addReadFilter(Network::ReadFilterSharedPtr{new UpstreamReadFilter(*client)});
-  ENVOY_LOG(info, "ASHER &&& ClientImpl::create5");
   client->connection_->connect();
-  ENVOY_LOG(info, "ASHER &&& ClientImpl::create6");
   client->connection_->noDelay(true);
   return client;
 }
@@ -106,11 +100,14 @@ void ClientImpl::flushBufferAndResetTimer() {
 
 PoolRequest* ClientImpl::makeRequest(const RespValue& request, ClientCallbacks& callbacks) {
 
-  ENVOY_LOG(info, "ASHER: *** in ClientImpl::makeRequest");
+  ENVOY_LOG(info, "ASHER: *** in ClientImpl::makeRequest...request = {}", request.toString());
   ASSERT(connection_->state() == Network::Connection::State::Open);
+
+  ENVOY_LOG(info, "ASHER: 200");
 
   const bool empty_buffer = encoder_buffer_.length() == 0;
 
+  ENVOY_LOG(info, "ASHER: 201");
   Stats::StatName command;
   if (config_.enableCommandStats()) {
     // Only lowercase command and get StatName if we enable command stats
@@ -121,8 +118,12 @@ PoolRequest* ClientImpl::makeRequest(const RespValue& request, ClientCallbacks& 
     command = redis_command_stats_->getUnusedStatName();
   }
 
+  ENVOY_LOG(info, "ASHER: 202");
+
   pending_requests_.emplace_back(*this, callbacks, command);
   encoder_->encode(request, encoder_buffer_);
+
+  ENVOY_LOG(info, "ASHER: 203");
 
   // If buffer is full, flush. If the buffer was empty before the request, start the timer.
   if (encoder_buffer_.length() >= config_.maxBufferSizeBeforeFlush()) {
@@ -130,6 +131,8 @@ PoolRequest* ClientImpl::makeRequest(const RespValue& request, ClientCallbacks& 
   } else if (empty_buffer) {
     flush_timer_->enableTimer(std::chrono::milliseconds(config_.bufferFlushTimeoutInMs()));
   }
+
+  ENVOY_LOG(info, "ASHER: 204");
 
   // Only boost the op timeout if:
   // - We are not already connected. Otherwise, we are governed by the connect timeout and the timer
@@ -140,6 +143,8 @@ PoolRequest* ClientImpl::makeRequest(const RespValue& request, ClientCallbacks& 
   if (connected_ && pending_requests_.size() == 1) {
     connect_or_op_timer_->enableTimer(config_.opTimeout());
   }
+
+  ENVOY_LOG(info, "ASHER: 205");
 
   return &pending_requests_.back();
 }

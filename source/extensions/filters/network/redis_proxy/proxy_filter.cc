@@ -74,7 +74,6 @@ void ProxyFilter::onRespValue(Common::Redis::RespValuePtr&& value) {
   pending_requests_.emplace_back(*this);
   PendingRequest& request = pending_requests_.back();
 
-  ENVOY_LOG(info, "ASHER: call makeRequest on the splitter, this should call InstanceImpl::makeRequest");
   CommandSplitter::SplitRequestPtr split =
       splitter_.makeRequest(std::move(value), request, callbacks_->connection().dispatcher());
   if (split) {
@@ -181,7 +180,6 @@ Network::FilterStatus ProxyFilter::onData(Buffer::Instance& data, bool) {
 
 ProxyFilter::PendingRequest::PendingRequest(ProxyFilter& parent) : 
       parent_(parent) {
-  ENVOY_LOG(info, "ASHER: Initializing PendingRequest");
   parent.config_->stats_.downstream_rq_total_.inc();
   parent.config_->stats_.downstream_rq_active_.inc();
 }
