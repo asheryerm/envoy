@@ -240,8 +240,10 @@ private:
     Ipv6Helper() { memset(&address_, 0, sizeof(address_)); }
     absl::uint128 address() const override;
     bool v6only() const override;
+    uint32_t scopeId() const override;
     uint32_t port() const;
     InstanceConstSharedPtr v4CompatibleAddress() const override;
+    InstanceConstSharedPtr addressWithoutScopeId() const override;
 
     std::string makeFriendlyAddress() const;
 

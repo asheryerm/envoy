@@ -10,7 +10,7 @@
 #include "source/common/api/os_sys_calls_impl.h"
 #include "source/common/network/connection_balancer_impl.h"
 #include "source/common/protobuf/protobuf.h"
-#include "source/server/active_tcp_listener.h"
+#include "source/extensions/listener_managers/listener_manager/active_tcp_listener.h"
 
 #include "contrib/envoy/extensions/network/connection_balance/dlb/v3alpha/dlb.pb.h"
 #include "contrib/envoy/extensions/network/connection_balance/dlb/v3alpha/dlb.pb.validate.h"
@@ -101,6 +101,7 @@ public:
 
   // Share those cross worker threads.
   std::vector<dlb_port_hdl_t> tx_ports, rx_ports;
+  uint max_retries;
 #endif
   std::vector<int> efds;
   std::vector<std::shared_ptr<DlbBalancedConnectionHandlerImpl>> dlb_handlers;
@@ -123,12 +124,13 @@ public:
     return dlb_create_ldb_port(domain, &args);
   }
 
-  static int createSchedDomain(dlb_hdl_t dlb, dlb_resources_t rsrcs, dlb_dev_cap_t cap) {
+  static int createSchedDomain(dlb_hdl_t dlb, dlb_resources_t rsrcs, dlb_dev_cap_t cap,
+                               uint32_t num_ldb_ports) {
     int p_rsrsc = 100;
     dlb_create_sched_domain_t args;
 
     args.num_ldb_queues = 1;
-    args.num_ldb_ports = 64;
+    args.num_ldb_ports = num_ldb_ports;
     args.num_dir_ports = 0;
     args.num_ldb_event_state_entries = 2 * args.num_ldb_ports * cq_depth;
     if (!cap.combined_credits) {

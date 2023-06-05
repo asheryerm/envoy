@@ -80,6 +80,42 @@ public:
     BaseIntegrationTest::initialize();
   }
 
+  void initializeWithIntermediateLog() {
+    config_helper_.renameListener("tcp_proxy");
+    config_helper_.addConfigModifier([](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+      auto* accesslog_cluster = bootstrap.mutable_static_resources()->add_clusters();
+      accesslog_cluster->MergeFrom(bootstrap.static_resources().clusters()[0]);
+      accesslog_cluster->set_name("accesslog");
+      ConfigHelper::setHttp2(*accesslog_cluster);
+    });
+
+    config_helper_.addConfigModifier([this](envoy::config::bootstrap::v3::Bootstrap& bootstrap) {
+      auto* listener = bootstrap.mutable_static_resources()->mutable_listeners(0);
+      auto* tcp_proxy =
+          listener->mutable_filter_chains(0)->mutable_filters(0)->mutable_typed_config();
+
+      envoy::extensions::filters::network::tcp_proxy::v3::TcpProxy tcp_proxy_config;
+      tcp_proxy->UnpackTo(&tcp_proxy_config);
+
+      auto* access_log = tcp_proxy_config.add_access_log();
+      access_log->set_name("grpc_accesslog");
+      envoy::extensions::access_loggers::grpc::v3::TcpGrpcAccessLogConfig access_log_config;
+      auto* common_config = access_log_config.mutable_common_config();
+      common_config->set_log_name("foo");
+      common_config->set_transport_api_version(envoy::config::core::v3::ApiVersion::V3);
+      setGrpcService(*common_config->mutable_grpc_service(), "accesslog",
+                     fake_upstreams_.back()->localAddress());
+      access_log->mutable_typed_config()->PackFrom(access_log_config);
+
+      tcp_proxy_config.mutable_access_log_options()
+          ->mutable_access_log_flush_interval()
+          ->set_seconds(1); // 1s
+
+      tcp_proxy->PackFrom(tcp_proxy_config);
+    });
+    BaseIntegrationTest::initialize();
+  }
+
   void setupTlsInspectorFilter(bool ssl_terminate, bool enable_ja3_fingerprinting = false) {
     std::string tls_inspector_config = ConfigHelper::tlsInspectorFilter(enable_ja3_fingerprinting);
     config_helper_.addListenerFilter(tls_inspector_config);
@@ -159,6 +195,10 @@ public:
     envoy::service::accesslog::v3::StreamAccessLogsMessage expected_request_msg;
     TestUtility::loadFromYaml(expected_request_msg_yaml, expected_request_msg);
 
+    // Clean up possible redundant intermediate log entries
+    request_msg.mutable_tcp_logs()->mutable_log_entry()->DeleteSubrange(
+        1, request_msg.tcp_logs().log_entry_size() - 1);
+
     // Clear fields which are not deterministic.
     auto* log_entry = request_msg.mutable_tcp_logs()->mutable_log_entry(0);
     clearPort(*log_entry->mutable_common_properties()->mutable_downstream_remote_address());
@@ -192,9 +232,11 @@ public:
                                         ->mutable_tls_properties()
                                         ->mutable_peer_certificate_properties());
     }
-    EXPECT_TRUE(TestUtility::protoEqual(request_msg, expected_request_msg,
-                                        /*ignore_repeated_field_ordering=*/false));
 
+    // Clear connection unique id which is not deterministic.
+    log_entry->mutable_common_properties()->clear_stream_id();
+
+    EXPECT_THAT(request_msg, ProtoEq(expected_request_msg));
     return AssertionSuccess();
   }
 
@@ -269,9 +311,14 @@ tcp_logs:
           address: {}
       upstream_cluster: cluster_0
       upstream_request_attempt_count: 1
+      downstream_wire_bytes_sent: 5
+      downstream_wire_bytes_received: 3
+      upstream_wire_bytes_sent: 3
+      upstream_wire_bytes_received: 5
       downstream_direct_remote_address:
         socket_address:
           address: {}
+      access_log_type: NotSet
     connection_properties:
       received_bytes: 3
       sent_bytes: 5
@@ -281,6 +328,78 @@ tcp_logs:
                                           Network::Test::getLoopbackAddressString(ipVersion()),
                                           Network::Test::getLoopbackAddressString(ipVersion()),
                                           Network::Test::getLoopbackAddressString(ipVersion()))));
+
+  cleanup();
+}
+
+// Test a basic full access logging flow with intermediate log.
+TEST_P(TcpGrpcAccessLogIntegrationTest, BasicAccessLogFlowWithIntermediateLog) {
+  initializeWithIntermediateLog();
+
+  IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("tcp_proxy"));
+  FakeRawConnectionPtr fake_upstream_connection;
+  ASSERT_TRUE(fake_upstreams_[0]->waitForRawConnection(fake_upstream_connection));
+
+  ASSERT_TRUE(fake_upstream_connection->write("hello"));
+  tcp_client->waitForData("hello");
+  ASSERT_TRUE(tcp_client->write("bar", false));
+
+  ASSERT_TRUE(waitForAccessLogConnection());
+  ASSERT_TRUE(waitForAccessLogStream());
+
+  ASSERT_TRUE(
+      waitForAccessLogRequest(fmt::format(R"EOF(
+identifier:
+  node:
+    id: node_name
+    cluster: cluster_name
+    locality:
+      zone: zone_name
+    user_agent_name: "envoy"
+  log_name: foo
+tcp_logs:
+  log_entry:
+    common_properties:
+      downstream_remote_address:
+        socket_address:
+          address: {}
+      downstream_local_address:
+        socket_address:
+          address: {}
+      upstream_remote_address:
+        socket_address:
+          address: {}
+      upstream_local_address:
+        socket_address:
+          address: {}
+      upstream_cluster: cluster_0
+      upstream_request_attempt_count: 1
+      downstream_wire_bytes_sent: 5
+      downstream_wire_bytes_received: 3
+      upstream_wire_bytes_sent: 3
+      upstream_wire_bytes_received: 5
+      access_log_type: TcpPeriodic
+      downstream_direct_remote_address:
+        socket_address:
+          address: {}
+      intermediate_log_entry: true
+    connection_properties:
+      received_bytes: 3
+      sent_bytes: 5
+)EOF",
+                                          Network::Test::getLoopbackAddressString(ipVersion()),
+                                          Network::Test::getLoopbackAddressString(ipVersion()),
+                                          Network::Test::getLoopbackAddressString(ipVersion()),
+                                          Network::Test::getLoopbackAddressString(ipVersion()),
+                                          Network::Test::getLoopbackAddressString(ipVersion()))));
+
+  ASSERT_TRUE(fake_upstream_connection->write("", true));
+  tcp_client->waitForHalfClose();
+  ASSERT_TRUE(tcp_client->write("", true));
+
+  ASSERT_TRUE(fake_upstream_connection->waitForData(3));
+  ASSERT_TRUE(fake_upstream_connection->waitForHalfClose());
+  ASSERT_TRUE(fake_upstream_connection->waitForDisconnect());
 
   cleanup();
 }
@@ -348,10 +467,13 @@ tcp_logs:
           address: {}
       upstream_cluster: cluster_0
       upstream_request_attempt_count: 1
+      downstream_wire_bytes_sent: 5
+      upstream_wire_bytes_received: 5
       connection_termination_details: rbac_access_denied_matched_policy[none]
       downstream_direct_remote_address:
         socket_address:
           address: {}
+      access_log_type: NotSet
     connection_properties:
       received_bytes: 3
       sent_bytes: 5
@@ -418,6 +540,7 @@ tcp_logs:
       downstream_direct_remote_address:
         socket_address:
           address: {}
+      access_log_type: NotSet
     connection_properties:
 )EOF",
                                           Network::Test::getLoopbackAddressString(ipVersion()),
@@ -481,6 +604,7 @@ tcp_logs:
       downstream_direct_remote_address:
         socket_address:
           address: {}
+      access_log_type: NotSet
     connection_properties:
 )EOF",
                                           Network::Test::getLoopbackAddressString(ipVersion()),
@@ -527,6 +651,7 @@ tcp_logs:
         socket_address:
       upstream_local_address:
         socket_address:
+      access_log_type: NotSet
       downstream_direct_remote_address:
         socket_address:
           address: {}
@@ -580,6 +705,7 @@ tcp_logs:
         socket_address:
       upstream_local_address:
         socket_address:
+      access_log_type: NotSet
       downstream_direct_remote_address:
         socket_address:
           address: {}
@@ -633,6 +759,7 @@ tcp_logs:
         socket_address:
       upstream_local_address:
         socket_address:
+      access_log_type: NotSet
       downstream_direct_remote_address:
         socket_address:
           address: {}

@@ -6,11 +6,7 @@
 #include "envoy/config/bootstrap/v3/bootstrap.pb.h"
 #include "envoy/config/core/v3/address.pb.h"
 #include "envoy/config/core/v3/base.pb.h"
-#include "envoy/config/tap/v3/common.pb.h"
-#include "envoy/data/tap/v3/wrapper.pb.h"
 #include "envoy/extensions/filters/network/http_connection_manager/v3/http_connection_manager.pb.h"
-#include "envoy/extensions/transport_sockets/tap/v3/tap.pb.h"
-#include "envoy/extensions/transport_sockets/tls/v3/cert.pb.h"
 
 #include "source/common/event/dispatcher_impl.h"
 #include "source/common/network/connection_impl.h"
@@ -22,7 +18,6 @@
 #include "source/extensions/transport_sockets/tls/ssl_socket.h"
 
 #include "test/common/config/dummy_config.pb.h"
-#include "test/extensions/common/tap/common.h"
 #include "test/extensions/transport_sockets/tls/cert_validator/timed_cert_validator.h"
 #include "test/integration/autonomous_upstream.h"
 #include "test/integration/integration.h"
@@ -36,6 +31,16 @@
 #include "absl/time/clock.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+
+#ifdef ENVOY_ADMIN_FUNCTIONALITY
+#include "envoy/config/tap/v3/common.pb.h"
+#include "envoy/data/tap/v3/wrapper.pb.h"
+#include "envoy/extensions/transport_sockets/tap/v3/tap.pb.h"
+#include "envoy/extensions/transport_sockets/tls/v3/cert.pb.h"
+#include "test/extensions/common/tap/common.h"
+#endif
+
+using testing::StartsWith;
 
 namespace Envoy {
 
@@ -343,6 +348,7 @@ TEST_P(SslIntegrationTest, RouterDownstreamDisconnectBeforeResponseComplete) {
 
 // This test must be here vs integration_admin_test so that it tests a server with loaded certs.
 TEST_P(SslIntegrationTest, AdminCertEndpoint) {
+  DISABLE_IF_ADMIN_DISABLED; // Admin functionality.
   initialize();
   BufferingStreamDecoderPtr response = IntegrationUtil::makeSingleRequest(
       lookupPort("admin"), "GET", "/certs", "", downstreamProtocol(), version_);
@@ -376,10 +382,6 @@ TEST_P(SslIntegrationTest, RouterHeaderOnlyRequestAndResponseWithSni) {
 }
 
 TEST_P(SslIntegrationTest, AsyncCertValidationSucceeds) {
-  if (!Runtime::runtimeFeatureEnabled("envoy.reloadable_features.tls_async_cert_validation")) {
-    return;
-  }
-
   // Config client to use an async cert validator which defer the actual validation by 5ms.
   envoy::config::core::v3::TypedExtensionConfig* custom_validator_config =
       new envoy::config::core::v3::TypedExtensionConfig();
@@ -410,10 +412,6 @@ typed_config:
 }
 
 TEST_P(SslIntegrationTest, AsyncCertValidationAfterTearDown) {
-  if (!Runtime::runtimeFeatureEnabled("envoy.reloadable_features.tls_async_cert_validation")) {
-    return;
-  }
-
   envoy::config::core::v3::TypedExtensionConfig* custom_validator_config =
       new envoy::config::core::v3::TypedExtensionConfig();
   TestUtility::loadFromYaml(TestEnvironment::substitute(R"EOF(
@@ -463,10 +461,6 @@ typed_config:
 }
 
 TEST_P(SslIntegrationTest, AsyncCertValidationAfterSslShutdown) {
-  if (!Runtime::runtimeFeatureEnabled("envoy.reloadable_features.tls_async_cert_validation")) {
-    return;
-  }
-
   envoy::config::core::v3::TypedExtensionConfig* custom_validator_config =
       new envoy::config::core::v3::TypedExtensionConfig();
   TestUtility::loadFromYaml(TestEnvironment::substitute(R"EOF(
@@ -636,7 +630,7 @@ public:
 
   ClientSslTransportOptions rsaOnlyClientOptions() {
     if (tls_version_ == envoy::extensions::transport_sockets::tls::v3::TlsParameters::TLSv1_3) {
-      return ClientSslTransportOptions().setSigningAlgorithmsForTest("rsa_pss_rsae_sha256");
+      return ClientSslTransportOptions().setSigningAlgorithms({"rsa_pss_rsae_sha256"});
     } else {
       return ClientSslTransportOptions().setCipherSuites({"ECDHE-RSA-AES128-GCM-SHA256"});
     }
@@ -645,7 +639,7 @@ public:
   ClientSslTransportOptions ecdsaOnlyClientOptions() {
     auto options = ClientSslTransportOptions().setClientEcdsaCert(true);
     if (tls_version_ == envoy::extensions::transport_sockets::tls::v3::TlsParameters::TLSv1_3) {
-      return options.setSigningAlgorithmsForTest("ecdsa_secp256r1_sha256");
+      return options.setSigningAlgorithms({"ecdsa_secp256r1_sha256"});
     } else {
       return options.setCipherSuites({"ECDHE-ECDSA-AES128-GCM-SHA256"});
     }
@@ -656,9 +650,7 @@ public:
           std::tuple<Network::Address::IpVersion,
                      envoy::extensions::transport_sockets::tls::v3::TlsParameters::TlsProtocol>>&
           params) {
-    return fmt::format("{}_TLSv1_{}",
-                       std::get<0>(params.param) == Network::Address::IpVersion::v4 ? "IPv4"
-                                                                                    : "IPv6",
+    return fmt::format("{}_TLSv1_{}", TestUtility::ipVersionToString(std::get<0>(params.param)),
                        std::get<1>(params.param) - 1);
   }
 
@@ -731,6 +723,46 @@ TEST_P(SslCertficateIntegrationTest, ServerEcdsaClientRsaOnly) {
   test_server_->waitForCounterGe(counter_name, 1);
   EXPECT_EQ(1U, counter->value());
   counter->reset();
+}
+
+// Server has only an ECDSA certificate, client is only RSA capable, leads to a connection fail.
+// Test the access log.
+TEST_P(SslCertficateIntegrationTest, ServerEcdsaClientRsaOnlyWithAccessLog) {
+  useListenerAccessLog("DOWNSTREAM_TRANSPORT_FAILURE_REASON=%DOWNSTREAM_TRANSPORT_FAILURE_REASON% "
+                       "FILTER_CHAIN_NAME=%FILTER_CHAIN_NAME%");
+  server_rsa_cert_ = false;
+  server_ecdsa_cert_ = true;
+  initialize();
+  auto codec_client =
+      makeRawHttpConnection(makeSslClientConnection(rsaOnlyClientOptions()), absl::nullopt);
+  EXPECT_FALSE(codec_client->connected());
+
+  auto log_result = waitForAccessLog(listener_access_log_name_);
+  if (tls_version_ == envoy::extensions::transport_sockets::tls::v3::TlsParameters::TLSv1_3) {
+    EXPECT_THAT(log_result,
+                StartsWith("DOWNSTREAM_TRANSPORT_FAILURE_REASON=TLS_error:_268435709:SSL_routines:"
+                           "OPENSSL_internal:NO_COMMON_SIGNATURE_ALGORITHMS"));
+  } else {
+    EXPECT_THAT(log_result, StartsWith("DOWNSTREAM_TRANSPORT_FAILURE_REASON=TLS_error:_268435640:"
+                                       "SSL_routines:OPENSSL_internal:NO_SHARED_CIPHER"));
+  }
+}
+
+// Server with RSA/ECDSA certificates and a client with only RSA cipher suites works.
+// Test empty access log with successful connection.
+TEST_P(SslCertficateIntegrationTest, ServerRsaEcdsaClientRsaOnlyWithAccessLog) {
+  useListenerAccessLog("DOWNSTREAM_TRANSPORT_FAILURE_REASON=%DOWNSTREAM_TRANSPORT_FAILURE_REASON% "
+                       "FILTER_CHAIN_NAME=%FILTER_CHAIN_NAME%");
+  server_rsa_cert_ = true;
+  server_ecdsa_cert_ = true;
+  ConnectionCreationFunction creator = [&]() -> Network::ClientConnectionPtr {
+    return makeSslClientConnection(rsaOnlyClientOptions());
+  };
+  testRouterRequestAndResponseWithBody(1024, 512, false, false, &creator);
+  checkStats();
+  codec_client_->close();
+  auto log_result = waitForAccessLog(listener_access_log_name_);
+  EXPECT_THAT(log_result, StartsWith("DOWNSTREAM_TRANSPORT_FAILURE_REASON=- FILTER_CHAIN_NAME=-"));
 }
 
 // Server with RSA/ECDSA certificates and a client with only RSA cipher suites works.
@@ -860,6 +892,7 @@ TEST_P(SslCertficateIntegrationTest, BothEcdsaAndRsaWithOcspResponseStaplingRequ
   checkStats();
 }
 
+#ifdef ENVOY_ADMIN_FUNCTIONALITY
 // TODO(zuercher): write an additional OCSP integration test that validates behavior with an
 // expired OCSP response. (Requires OCSP client-side support in upstream TLS.)
 
@@ -1171,6 +1204,7 @@ TEST_P(SslTapIntegrationTest, RequestWithStreamingUpstreamTap) {
   EXPECT_EQ(traces[2].socket_streamed_trace_segment().event().read().data().as_bytes(), "HTTP/");
   EXPECT_TRUE(traces[2].socket_streamed_trace_segment().event().read().data().truncated());
 }
+#endif
 
 INSTANTIATE_TEST_SUITE_P(IpVersions, SslKeyLogTest,
                          testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),

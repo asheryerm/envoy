@@ -1,8 +1,6 @@
 #include "envoy/extensions/http/header_validators/envoy_default/v3/header_validator.pb.h"
 
-#include "source/extensions/http/header_validators/envoy_default/config.h"
-
-#include "test/mocks/stream_info/mocks.h"
+#include "test/mocks/http/header_validator.h"
 
 #include "gtest/gtest.h"
 
@@ -23,14 +21,14 @@ namespace Http {
 namespace HeaderValidators {
 namespace EnvoyDefault {
 
-class HeaderValidatorTest : public testing::Test {
+class HeaderValidatorTest {
 protected:
   void setHeaderStringUnvalidated(Envoy::Http::HeaderString& header_string,
                                   absl::string_view value) {
     header_string.setCopyUnvalidatedForTestOnly(value);
   }
 
-  NiceMock<Envoy::StreamInfo::MockStreamInfo> stream_info_;
+  ::testing::NiceMock<Envoy::Http::MockHeaderValidatorStats> stats_;
 
   static constexpr absl::string_view empty_config = "{}";
 
@@ -49,6 +47,17 @@ protected:
   static constexpr absl::string_view allow_chunked_length_config = R"EOF(
     http1_protocol_options: {allow_chunked_length: true}
 )EOF";
+
+  static constexpr absl::string_view redirect_encoded_slash_config = R"EOF(
+    uri_path_normalization_options:
+      path_with_escaped_slashes_action: UNESCAPE_AND_REDIRECT
+    )EOF";
+
+  static constexpr absl::string_view no_path_normalization = R"EOF(
+    uri_path_normalization_options:
+      skip_path_normalization: true
+      path_with_escaped_slashes_action: UNESCAPE_AND_REDIRECT
+    )EOF";
 };
 
 } // namespace EnvoyDefault

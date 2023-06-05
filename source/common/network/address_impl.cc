@@ -234,10 +234,12 @@ void Ipv4Instance::initHelper(const sockaddr_in* address) {
 
 absl::uint128 Ipv6Instance::Ipv6Helper::address() const {
   absl::uint128 result{0};
-  static_assert(sizeof(absl::uint128) == 16, "The size of asbl::uint128 is not 16.");
+  static_assert(sizeof(absl::uint128) == 16, "The size of absl::uint128 is not 16.");
   safeMemcpyUnsafeSrc(&result, &address_.sin6_addr.s6_addr[0]);
   return result;
 }
+
+uint32_t Ipv6Instance::Ipv6Helper::scopeId() const { return address_.sin6_scope_id; }
 
 uint32_t Ipv6Instance::Ipv6Helper::port() const { return ntohs(address_.sin6_port); }
 
@@ -247,6 +249,12 @@ std::string Ipv6Instance::Ipv6Helper::makeFriendlyAddress() const {
   char str[INET6_ADDRSTRLEN];
   const char* ptr = inet_ntop(AF_INET6, &address_.sin6_addr, str, INET6_ADDRSTRLEN);
   ASSERT(str == ptr);
+  if (address_.sin6_scope_id != 0) {
+    // Note that here we don't use the `if_indextoname` that will give a more user friendly
+    // output just because in the past created a performance bottleneck if the machine had a
+    // lot of IPv6 Link local addresses.
+    return absl::StrCat(ptr, "%", scopeId());
+  }
   return ptr;
 }
 
@@ -258,6 +266,13 @@ InstanceConstSharedPtr Ipv6Instance::Ipv6Helper::v4CompatibleAddress() const {
     return addr.ok() ? addr.value() : nullptr;
   }
   return nullptr;
+}
+
+InstanceConstSharedPtr Ipv6Instance::Ipv6Helper::addressWithoutScopeId() const {
+  struct sockaddr_in6 ret_addr = address_;
+  ret_addr.sin6_scope_id = 0;
+  auto addr = Address::InstanceFactory::createInstancePtr<Address::Ipv6Instance>(ret_addr, v6only_);
+  return addr.ok() ? addr.value() : nullptr;
 }
 
 Ipv6Instance::Ipv6Instance(const sockaddr_in6& address, bool v6only,
@@ -294,7 +309,8 @@ Ipv6Instance::Ipv6Instance(uint32_t port, const SocketInterface* sock_interface)
 bool Ipv6Instance::operator==(const Instance& rhs) const {
   const auto* rhs_casted = dynamic_cast<const Ipv6Instance*>(&rhs);
   return (rhs_casted && (ip_.ipv6_.address() == rhs_casted->ip_.ipv6_.address()) &&
-          (ip_.port() == rhs_casted->ip_.port()));
+          (ip_.port() == rhs_casted->ip_.port()) &&
+          (ip_.ipv6_.scopeId() == rhs_casted->ip_.ipv6_.scopeId()));
 }
 
 Ipv6Instance::Ipv6Instance(absl::Status& status, const sockaddr_in6& address, bool v6only,

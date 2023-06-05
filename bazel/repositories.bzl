@@ -1,5 +1,4 @@
 load(":dev_binding.bzl", "envoy_dev_binding")
-load(":genrule_repository.bzl", "genrule_repository")
 load("@envoy_api//bazel:envoy_http_archive.bzl", "envoy_http_archive")
 load("@envoy_api//bazel:external_deps.bzl", "load_repository_locations")
 load(":repository_locations.bzl", "PROTOC_VERSIONS", "REPOSITORY_LOCATIONS_SPEC")
@@ -8,6 +7,7 @@ load("@com_google_googleapis//:repository_rules.bzl", "switched_rules_by_languag
 PPC_SKIP_TARGETS = ["envoy.filters.http.lua"]
 
 WINDOWS_SKIP_TARGETS = [
+    "envoy.extensions.http.cache.file_system_http_cache",
     "envoy.filters.http.file_system_buffer",
     "envoy.filters.http.language",
     "envoy.filters.http.sxg",
@@ -31,14 +31,6 @@ def external_http_archive(name, **kwargs):
         name,
         locations = REPOSITORY_LOCATIONS,
         **kwargs
-    )
-
-# Use this macro to reference any genrule_repository sourced from bazel/repository_locations.bzl.
-def external_genrule_repository(name, **kwargs):
-    location = REPOSITORY_LOCATIONS[name]
-    genrule_repository(
-        name = name,
-        **dict(location, **kwargs)
     )
 
 def _default_envoy_build_config_impl(ctx):
@@ -77,6 +69,21 @@ def _envoy_repo_impl(repository_ctx):
     within the constraints of a `genquery`, or that otherwise need access to the repository
     files.
 
+    Project and repo data can be accessed in JSON format using `@envoy_repo//:project`, eg:
+
+    ```starlark
+    load("@aspect_bazel_lib//lib:jq.bzl", "jq")
+
+    jq(
+        name = "project_version",
+        srcs = ["@envoy_repo//:data"],
+        out = "version.txt",
+        args = ["-r"],
+        filter = ".version",
+    )
+
+    ```
+
     """
     repo_version_path = repository_ctx.path(repository_ctx.attr.envoy_version)
     api_version_path = repository_ctx.path(repository_ctx.attr.envoy_api_version)
@@ -86,12 +93,88 @@ def _envoy_repo_impl(repository_ctx):
     repository_ctx.file("path.bzl", "PATH = '%s'" % repo_version_path.dirname)
     repository_ctx.file("__init__.py", "PATH = '%s'\nVERSION = '%s'\nAPI_VERSION = '%s'" % (repo_version_path.dirname, version, api_version))
     repository_ctx.file("WORKSPACE", "")
-    repository_ctx.file("BUILD", """
+    repository_ctx.file("BUILD", '''
 load("@rules_python//python:defs.bzl", "py_library")
+load("@envoy//tools/base:envoy_python.bzl", "envoy_entry_point")
+load("//:path.bzl", "PATH")
 
-py_library(name = "envoy_repo", srcs = ["__init__.py"], visibility = ["//visibility:public"])
+py_library(
+    name = "envoy_repo",
+    srcs = ["__init__.py"],
+    visibility = ["//visibility:public"],
+)
 
-""")
+envoy_entry_point(
+    name = "get_project_json",
+    pkg = "envoy.base.utils",
+    script = "envoy.project_data",
+)
+
+genrule(
+    name = "project",
+    outs = ["project.json"],
+    cmd = """
+    $(location :get_project_json) . > $@
+    """,
+    tools = [
+        ":get_project_json",
+        "@envoy//:VERSION.txt",
+        "@envoy//changelogs",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+envoy_entry_point(
+    name = "release",
+    args = [
+        "release",
+        PATH,
+    ],
+    pkg = "envoy.base.utils",
+    script = "envoy.project",
+)
+
+envoy_entry_point(
+    name = "dev",
+    args = [
+        "dev",
+        PATH,
+    ],
+    pkg = "envoy.base.utils",
+    script = "envoy.project",
+)
+
+envoy_entry_point(
+    name = "sync",
+    args = [
+        "sync",
+        PATH,
+    ],
+    pkg = "envoy.base.utils",
+    script = "envoy.project",
+)
+
+envoy_entry_point(
+    name = "publish",
+    args = [
+        "publish",
+        PATH,
+    ],
+    pkg = "envoy.base.utils",
+    script = "envoy.project",
+)
+
+envoy_entry_point(
+    name = "trigger",
+    args = [
+        "trigger",
+        PATH,
+    ],
+    pkg = "envoy.base.utils",
+    script = "envoy.project",
+)
+
+''')
 
 _envoy_repo = repository_rule(
     implementation = _envoy_repo_impl,
@@ -171,7 +254,7 @@ def envoy_dependencies(skip_targets = []):
     _com_github_c_ares_c_ares()
     _com_github_circonus_labs_libcircllhist()
     _com_github_cyan4973_xxhash()
-    _com_github_datadog_dd_opentracing_cpp()
+    _com_github_datadog_dd_trace_cpp()
     _com_github_mirror_tclap()
     _com_github_envoyproxy_sqlparser()
     _com_github_fmtlib_fmt()
@@ -189,7 +272,6 @@ def envoy_dependencies(skip_targets = []):
     _com_github_jbeder_yaml_cpp()
     _com_github_libevent_libevent()
     _com_github_luajit_luajit()
-    _com_github_moonjit_moonjit()
     _com_github_nghttp2_nghttp2()
     _com_github_skyapm_cpp2sky()
     _com_github_nodejs_http_parser()
@@ -230,7 +312,12 @@ def envoy_dependencies(skip_targets = []):
     external_http_archive("bazel_toolchains")
     external_http_archive("bazel_compdb")
     external_http_archive("envoy_build_tools")
-    external_http_archive("rules_pkg")
+
+    # TODO(keith): Remove patch when we update rules_pkg
+    external_http_archive(
+        "rules_pkg",
+        patches = ["@envoy//bazel:rules_pkg.patch"],
+    )
     external_http_archive("com_github_aignas_rules_shellcheck")
     external_http_archive("aspect_bazel_lib")
     _com_github_fdio_vpp_vcl()
@@ -255,7 +342,7 @@ def envoy_dependencies(skip_targets = []):
         go = True,
         grpc = True,
         rules_override = {
-            "py_proto_library": "@envoy_api//bazel:api_build_system.bzl",
+            "py_proto_library": ["@envoy_api//bazel:api_build_system.bzl", ""],
         },
     )
     native.bind(
@@ -267,15 +354,15 @@ def _boringssl():
     external_http_archive(
         name = "boringssl",
         patch_args = ["-p1"],
-        patches = ["@envoy//bazel:boringssl_static.patch"],
+        patches = [
+            "@envoy//bazel:boringssl_static.patch",
+        ],
     )
 
 def _boringssl_fips():
-    external_genrule_repository(
+    external_http_archive(
         name = "boringssl_fips",
-        genrule_cmd_file = "@envoy//bazel/external:boringssl_fips.genrule_cmd",
         build_file = "@envoy//bazel/external:boringssl_fips.BUILD",
-        patches = ["@envoy//bazel/external:boringssl_fips.patch"],
     )
 
 def _com_github_circonus_labs_libcircllhist():
@@ -396,6 +483,12 @@ def _com_github_unicode_org_icu():
 def _com_github_intel_ipp_crypto_crypto_mb():
     external_http_archive(
         name = "com_github_intel_ipp_crypto_crypto_mb",
+        # Patch removes from CMakeLists.txt instructions to
+        # to create dynamic *.so library target. Linker fails when linking
+        # with boringssl_fips library. Envoy uses only static library
+        # anyways, so created dynamic library would not be used anyways.
+        patches = ["@envoy//bazel/foreign_cc:ipp-crypto-skip-dynamic-lib.patch"],
+        patch_args = ["-p1"],
         build_file_content = BUILD_ALL_CONTENT,
     )
 
@@ -403,12 +496,6 @@ def _com_github_intel_qatlib():
     external_http_archive(
         name = "com_github_intel_qatlib",
         build_file_content = BUILD_ALL_CONTENT,
-        patch_args = ["-p1"],
-        patches = [
-            "@envoy//bazel/foreign_cc:qatlib-0001-qat-Enable-disable-systemd-support-with-configure.ac.patch",
-            "@envoy//bazel/foreign_cc:qatlib-0002-qatlib-Remove-remaining-shared-flags.patch",
-            "@envoy//bazel/foreign_cc:qatlib-0003-configure-Check-if-pkg-config-is-installed-before-us.patch",
-        ],
     )
 
 def _com_github_jbeder_yaml_cpp():
@@ -523,7 +610,11 @@ def _com_github_facebook_zstd():
     )
 
 def _com_google_cel_cpp():
-    external_http_archive("com_google_cel_cpp")
+    external_http_archive(
+        "com_google_cel_cpp",
+        patches = ["@envoy//bazel:cel-cpp.patch"],
+        patch_args = ["-p1"],
+    )
 
 def _com_github_google_perfetto():
     external_http_archive(
@@ -573,15 +664,11 @@ def _io_opentracing_cpp():
         actual = "@io_opentracing_cpp//:opentracing",
     )
 
-def _com_github_datadog_dd_opentracing_cpp():
-    external_http_archive("com_github_datadog_dd_opentracing_cpp")
-    external_http_archive(
-        name = "com_github_msgpack_msgpack_c",
-        build_file = "@com_github_datadog_dd_opentracing_cpp//:bazel/external/msgpack.BUILD",
-    )
+def _com_github_datadog_dd_trace_cpp():
+    external_http_archive("com_github_datadog_dd_trace_cpp")
     native.bind(
-        name = "dd_opentracing_cpp",
-        actual = "@com_github_datadog_dd_opentracing_cpp//:dd_opentracing_cpp",
+        name = "dd_trace_cpp",
+        actual = "@com_github_datadog_dd_trace_cpp//:dd_trace_cpp",
     )
 
 def _com_github_skyapm_cpp2sky():
@@ -908,12 +995,28 @@ def _com_github_google_quiche():
         actual = "@com_github_google_quiche//:http2_adapter",
     )
     native.bind(
+        name = "quiche_http2_protocol",
+        actual = "@com_github_google_quiche//:http2_adapter_http2_protocol",
+    )
+    native.bind(
+        name = "quiche_http2_test_tools",
+        actual = "@com_github_google_quiche//:http2_adapter_mock_http2_visitor",
+    )
+    native.bind(
         name = "quiche_quic_platform",
         actual = "@com_github_google_quiche//:quic_platform",
     )
     native.bind(
         name = "quiche_quic_platform_base",
         actual = "@com_github_google_quiche//:quic_platform_base",
+    )
+    native.bind(
+        name = "quiche_spdy_hpack",
+        actual = "@com_github_google_quiche//:spdy_core_hpack_hpack_lib",
+    )
+    native.bind(
+        name = "quiche_http2_hpack_decoder",
+        actual = "@com_github_google_quiche//:http2_hpack_decoder_hpack_decoder_lib",
     )
 
 def _com_googlesource_googleurl():
@@ -1030,7 +1133,13 @@ def _proxy_wasm_cpp_sdk():
     external_http_archive(name = "proxy_wasm_cpp_sdk")
 
 def _proxy_wasm_cpp_host():
-    external_http_archive(name = "proxy_wasm_cpp_host")
+    external_http_archive(
+        name = "proxy_wasm_cpp_host",
+        patch_args = ["-p1"],
+        patches = [
+            "@envoy//bazel:proxy_wasm_cpp_host.patch",
+        ],
+    )
 
 def _emsdk():
     external_http_archive(
@@ -1064,20 +1173,6 @@ def _com_github_luajit_luajit():
     native.bind(
         name = "luajit",
         actual = "@envoy//bazel/foreign_cc:luajit",
-    )
-
-def _com_github_moonjit_moonjit():
-    external_http_archive(
-        name = "com_github_moonjit_moonjit",
-        build_file_content = BUILD_ALL_CONTENT,
-        patches = ["@envoy//bazel/foreign_cc:moonjit.patch"],
-        patch_args = ["-p1"],
-        patch_cmds = ["chmod u+x build.py"],
-    )
-
-    native.bind(
-        name = "moonjit",
-        actual = "@envoy//bazel/foreign_cc:moonjit",
     )
 
 def _com_github_google_tcmalloc():
@@ -1175,8 +1270,6 @@ filegroup(
     visibility = ["@envoy//contrib/network/connection_balance/dlb/source:__pkg__"],
 )
 """,
-        patch_args = ["-p1"],
-        patches = ["@envoy//bazel/foreign_cc:dlb.patch"],
     )
 
 def _rules_fuzzing():
@@ -1215,6 +1308,10 @@ filegroup(
     external_http_archive(
         name = "edenhill_librdkafka",
         build_file_content = BUILD_ALL_CONTENT,
+        # (adam.kotwasinski) librdkafka bundles in cJSON, which is also bundled in by libvppinfra.
+        # For now, let's just drop this dependency from Kafka, as it's used only for monitoring.
+        patches = ["@envoy//bazel/foreign_cc:librdkafka.patch"],
+        patch_args = ["-p1"],
     )
     native.bind(
         name = "librdkafka",
@@ -1238,7 +1335,7 @@ filegroup(
 def _com_github_fdio_vpp_vcl():
     external_http_archive(
         name = "com_github_fdio_vpp_vcl",
-        build_file_content = BUILD_ALL_CONTENT,
+        build_file_content = _build_all_content(exclude = ["**/*doc*/**", "**/examples/**", "**/plugins/**"]),
         patches = ["@envoy//bazel/foreign_cc:vpp_vcl.patch"],
     )
 

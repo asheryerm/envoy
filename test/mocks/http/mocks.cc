@@ -85,7 +85,8 @@ MockStreamDecoderFilterCallbacks::MockStreamDecoderFilterCallbacks() {
       }));
 
   ON_CALL(*this, activeSpan()).WillByDefault(ReturnRef(active_span_));
-  ON_CALL(*this, tracingConfig()).WillByDefault(ReturnRef(tracing_config_));
+  ON_CALL(*this, tracingConfig())
+      .WillByDefault(Return(makeOptRef<const Tracing::Config>(tracing_config_)));
   ON_CALL(*this, scope()).WillByDefault(ReturnRef(scope_));
   ON_CALL(*this, sendLocalReply(_, _, _, _, _))
       .WillByDefault(Invoke([this](Code code, absl::string_view body,
@@ -143,7 +144,8 @@ MockStreamEncoderFilterCallbacks::MockStreamEncoderFilterCallbacks() {
   initializeMockStreamFilterCallbacks(*this);
   ON_CALL(*this, encodingBuffer()).WillByDefault(Invoke(&buffer_, &Buffer::InstancePtr::get));
   ON_CALL(*this, activeSpan()).WillByDefault(ReturnRef(active_span_));
-  ON_CALL(*this, tracingConfig()).WillByDefault(ReturnRef(tracing_config_));
+  ON_CALL(*this, tracingConfig())
+      .WillByDefault(Return(makeOptRef<const Tracing::Config>(tracing_config_)));
   ON_CALL(*this, scope()).WillByDefault(ReturnRef(scope_));
 
   ON_CALL(*this, mostSpecificPerFilterConfig())
@@ -211,7 +213,11 @@ MockAsyncClientRequest::MockAsyncClientRequest(MockAsyncClient* client) : client
 MockAsyncClientRequest::~MockAsyncClientRequest() { client_->onRequestDestroy(); }
 
 MockAsyncClientStream::MockAsyncClientStream() = default;
-MockAsyncClientStream::~MockAsyncClientStream() = default;
+MockAsyncClientStream::~MockAsyncClientStream() {
+  if (destructor_callback_) {
+    (*destructor_callback_)();
+  }
+};
 
 MockFilterChainFactoryCallbacks::MockFilterChainFactoryCallbacks() = default;
 MockFilterChainFactoryCallbacks::~MockFilterChainFactoryCallbacks() = default;

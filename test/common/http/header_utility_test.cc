@@ -8,6 +8,7 @@
 #include "source/common/http/header_utility.h"
 #include "source/common/json/json_loader.h"
 
+#include "test/mocks/http/header_validator.h"
 #include "test/test_common/test_runtime.h"
 #include "test/test_common/utility.h"
 
@@ -52,6 +53,26 @@ TEST_F(HeaderUtilityTest, HasHost) {
     EXPECT_EQ(HeaderUtility::getPortStart(host_pair.first) != absl::string_view::npos,
               host_pair.second)
         << host_pair.first;
+  }
+}
+
+TEST_F(HeaderUtilityTest, HostHasPort) {
+  const std::vector<std::pair<std::string, bool>> host_headers{
+      {"localhost", false},      // w/o port part
+      {"localhost:443", true},   // name w/ port
+      {"", false},               // empty
+      {":443", true},            // just port
+      {"192.168.1.1", false},    // ipv4
+      {"192.168.1.1:443", true}, // ipv4 w/ port
+      {"[fc00::1]:443", true},   // ipv6 w/ port
+      {"[fc00::1]", false},      // ipv6
+      {":", false},              // malformed string #1
+      {"]:", false},             // malformed string #2
+      {":abc", false},           // malformed string #3
+  };
+
+  for (const auto& host_pair : host_headers) {
+    EXPECT_EQ(host_pair.second, HeaderUtility::hostHasPort(host_pair.first));
   }
 }
 
@@ -1139,6 +1160,23 @@ TEST(HeaderIsValidTest, IsConnectResponse) {
   EXPECT_FALSE(HeaderUtility::isConnectResponse(get_request.get(), success_response));
 }
 
+#ifdef ENVOY_ENABLE_HTTP_DATAGRAMS
+TEST(HeaderIsValidTest, IsCapsuleProtocol) {
+  EXPECT_TRUE(
+      HeaderUtility::isCapsuleProtocol(TestRequestHeaderMapImpl{{"Capsule-Protocol", "?1"}}));
+  EXPECT_TRUE(HeaderUtility::isCapsuleProtocol(
+      TestRequestHeaderMapImpl{{"Capsule-Protocol", "?1;a=1;b=2;c;d=?0"}}));
+  EXPECT_FALSE(
+      HeaderUtility::isCapsuleProtocol(TestRequestHeaderMapImpl{{"Capsule-Protocol", "?0"}}));
+  EXPECT_FALSE(HeaderUtility::isCapsuleProtocol(
+      TestRequestHeaderMapImpl{{"Capsule-Protocol", "?1"}, {"Capsule-Protocol", "?1"}}));
+  EXPECT_FALSE(HeaderUtility::isCapsuleProtocol(TestRequestHeaderMapImpl{{":method", "CONNECT"}}));
+  EXPECT_TRUE(HeaderUtility::isCapsuleProtocol(
+      TestResponseHeaderMapImpl{{":status", "200"}, {"Capsule-Protocol", "?1"}}));
+  EXPECT_FALSE(HeaderUtility::isCapsuleProtocol(TestResponseHeaderMapImpl{{":status", "200"}}));
+}
+#endif
+
 TEST(HeaderIsValidTest, ShouldHaveNoBody) {
   const std::vector<std::string> methods{{"CONNECT"}, {"GET"}, {"DELETE"}, {"TRACE"}, {"HEAD"}};
 
@@ -1211,31 +1249,29 @@ TEST(RequiredHeaders, IsModifiableHeader) {
 }
 
 TEST(ValidateHeaders, HeaderNameWithUnderscores) {
-  Stats::MockCounter dropped;
-  Stats::MockCounter rejected;
-  EXPECT_CALL(dropped, inc());
-  EXPECT_CALL(rejected, inc()).Times(0u);
+  MockHeaderValidatorStats stats;
+  EXPECT_CALL(stats, incDroppedHeadersWithUnderscores());
+  EXPECT_CALL(stats, incRequestsRejectedWithUnderscoresInHeaders()).Times(0u);
   EXPECT_EQ(HeaderUtility::HeaderValidationResult::DROP,
             HeaderUtility::checkHeaderNameForUnderscores(
                 "header_with_underscore", envoy::config::core::v3::HttpProtocolOptions::DROP_HEADER,
-                dropped, rejected));
+                stats));
 
-  EXPECT_CALL(dropped, inc()).Times(0u);
-  EXPECT_CALL(rejected, inc());
+  EXPECT_CALL(stats, incDroppedHeadersWithUnderscores()).Times(0u);
+  EXPECT_CALL(stats, incRequestsRejectedWithUnderscoresInHeaders());
   EXPECT_EQ(HeaderUtility::HeaderValidationResult::REJECT,
             HeaderUtility::checkHeaderNameForUnderscores(
                 "header_with_underscore",
-                envoy::config::core::v3::HttpProtocolOptions::REJECT_REQUEST, dropped, rejected));
+                envoy::config::core::v3::HttpProtocolOptions::REJECT_REQUEST, stats));
+
+  EXPECT_EQ(
+      HeaderUtility::HeaderValidationResult::ACCEPT,
+      HeaderUtility::checkHeaderNameForUnderscores(
+          "header_with_underscore", envoy::config::core::v3::HttpProtocolOptions::ALLOW, stats));
 
   EXPECT_EQ(HeaderUtility::HeaderValidationResult::ACCEPT,
             HeaderUtility::checkHeaderNameForUnderscores(
-                "header_with_underscore", envoy::config::core::v3::HttpProtocolOptions::ALLOW,
-                dropped, rejected));
-
-  EXPECT_EQ(HeaderUtility::HeaderValidationResult::ACCEPT,
-            HeaderUtility::checkHeaderNameForUnderscores(
-                "header", envoy::config::core::v3::HttpProtocolOptions::REJECT_REQUEST, dropped,
-                rejected));
+                "header", envoy::config::core::v3::HttpProtocolOptions::REJECT_REQUEST, stats));
 }
 
 TEST(ValidateHeaders, Connect) {
@@ -1290,6 +1326,43 @@ TEST(ValidateHeaders, ContentLength) {
       HeaderUtility::validateContentLength("-1", false, should_close_connection, content_length));
   EXPECT_TRUE(should_close_connection);
 }
+
+#ifdef NDEBUG
+// These tests send invalid request and response header names which violate ASSERT while creating
+// such request/response headers. So they can only be run in NDEBUG mode.
+TEST(ValidateHeaders, ForbiddenCharacters) {
+  {
+    // Valid headers
+    TestRequestHeaderMapImpl headers{
+        {":method", "CONNECT"}, {":authority", "foo.com:80"}, {"x-foo", "hello world"}};
+    EXPECT_EQ(Http::okStatus(), HeaderUtility::checkValidRequestHeaders(headers));
+  }
+
+  {
+    // Mixed case header key is ok
+    TestRequestHeaderMapImpl headers{{":method", "CONNECT"}, {":authority", "foo.com:80"}};
+    Http::HeaderString invalid_key(absl::string_view("x-MiXeD-CaSe"));
+    headers.addViaMove(std::move(invalid_key),
+                       Http::HeaderString(absl::string_view("hello world")));
+    EXPECT_TRUE(HeaderUtility::checkValidRequestHeaders(headers).ok());
+  }
+
+  {
+    // Invalid key
+    TestRequestHeaderMapImpl headers{
+        {":method", "CONNECT"}, {":authority", "foo.com:80"}, {"x-foo\r\n", "hello world"}};
+    EXPECT_NE(Http::okStatus(), HeaderUtility::checkValidRequestHeaders(headers));
+  }
+
+  {
+    // Invalid value
+    TestRequestHeaderMapImpl headers{{":method", "CONNECT"},
+                                     {":authority", "foo.com:80"},
+                                     {"x-foo", "hello\r\n\r\nGET /evil HTTP/1.1"}};
+    EXPECT_NE(Http::okStatus(), HeaderUtility::checkValidRequestHeaders(headers));
+  }
+}
+#endif
 
 TEST(ValidateHeaders, ParseCommaDelimitedHeader) {
   // Basic case

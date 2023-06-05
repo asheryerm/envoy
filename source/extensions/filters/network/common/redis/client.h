@@ -50,9 +50,8 @@ public:
    * @param value supplies the MOVED error response
    * @param host_address supplies the redirection host address and port
    * @param ask_redirection indicates if this is a ASK redirection
-   * @return bool true if the request is successfully redirected, false otherwise
    */
-  virtual bool onRedirection(RespValuePtr&& value, const std::string& host_address,
+  virtual void onRedirection(RespValuePtr&& value, const std::string& host_address,
                              bool ask_redirection) PURE;
 };
 
@@ -65,9 +64,7 @@ public:
   // ClientCallbacks
   void onResponse(Common::Redis::RespValuePtr&&) override {}
   void onFailure() override {}
-  bool onRedirection(Common::Redis::RespValuePtr&&, const std::string&, bool) override {
-    return false;
-  }
+  void onRedirection(Common::Redis::RespValuePtr&&, const std::string&, bool) override {}
 };
 
 /**
@@ -184,6 +181,9 @@ public:
    * @return the read policy the proxy should use.
    */
   virtual ReadPolicy readPolicy() const PURE;
+
+  virtual bool connectionRateLimitEnabled() const PURE;
+  virtual uint32_t connectionRateLimitPerSec() const PURE;
 };
 
 using ConfigSharedPtr = std::shared_ptr<Config>;

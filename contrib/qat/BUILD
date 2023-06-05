@@ -18,6 +18,7 @@ configure_make(
     autogen = True,
     configure_in_place = True,
     configure_options = [
+        "--disable-fast-crc-in-assembler",
         "--disable-systemd",
         "--disable-shared",
         "--with-pic",
@@ -31,6 +32,7 @@ configure_make(
     ],
     target_compatible_with = envoy_contrib_linux_x86_64_constraints(),
     visibility = ["//visibility:public"],
-    deps = ["@boringssl//:ssl"],
+    # Use boringssl alias to select fips vs non-fips version.
+    deps = ["//bazel:boringssl"],
     alwayslink = True,
 )

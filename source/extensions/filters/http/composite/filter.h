@@ -44,7 +44,7 @@ public:
   void decodeComplete() override;
 
   // Http::StreamEncoderFilter
-  Http::FilterHeadersStatus encode1xxHeaders(Http::ResponseHeaderMap& headers) override;
+  Http::Filter1xxHeadersStatus encode1xxHeaders(Http::ResponseHeaderMap& headers) override;
   Http::FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap& headers,
                                           bool end_stream) override;
   Http::FilterDataStatus encodeData(Buffer::Instance& data, bool end_stream) override;
@@ -70,9 +70,10 @@ public:
   void log(const Http::RequestHeaderMap* request_headers,
            const Http::ResponseHeaderMap* response_headers,
            const Http::ResponseTrailerMap* response_trailers,
-           const StreamInfo::StreamInfo& stream_info) override {
+           const StreamInfo::StreamInfo& stream_info,
+           AccessLog::AccessLogType access_log_type) override {
     for (const auto& log : access_loggers_) {
-      log->log(request_headers, response_headers, response_trailers, stream_info);
+      log->log(request_headers, response_headers, response_trailers, stream_info, access_log_type);
     }
   }
 
@@ -106,7 +107,7 @@ private:
     void decodeComplete() override;
 
     // Http::StreamEncoderFilter
-    Http::FilterHeadersStatus encode1xxHeaders(Http::ResponseHeaderMap& headers) override;
+    Http::Filter1xxHeadersStatus encode1xxHeaders(Http::ResponseHeaderMap& headers) override;
     Http::FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap& headers,
                                             bool end_stream) override;
     Http::FilterDataStatus encodeData(Buffer::Instance& data, bool end_stream) override;

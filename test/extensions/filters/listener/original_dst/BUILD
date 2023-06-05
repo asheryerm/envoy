@@ -21,11 +21,13 @@ envoy_cc_fuzz_test(
 
 envoy_cc_test(
     name = "original_dst_integration_test",
+    size = "large",
     srcs = [
         "original_dst_integration_test.cc",
     ],
     deps = [
         "//source/common/http:header_map_lib",
+        "//source/extensions/clusters/original_dst:original_dst_cluster_lib",
         "//source/extensions/filters/http/buffer:config",
         "//source/extensions/filters/listener/original_dst:config",
         "//source/extensions/filters/network/tcp_proxy:config",

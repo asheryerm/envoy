@@ -38,11 +38,22 @@ To build Envoy from a release tarball, you can download a release tarball from A
 Given all required [Envoy dependencies](https://www.envoyproxy.io/docs/envoy/latest/start/building#requirements) are installed, the following steps should be followed:
 
 1. Download and extract source code of a release tarball from the Releases page. For example: https://github.com/envoyproxy/envoy/releases/tag/v1.24.0.
-1. `python3 tools/github/tools/github/write_current_source_version.py` from the repository root.
+1. `python3 tools/github/write_current_source_version.py` from the repository root.
 1. `bazel build -c opt envoy` from the repository root.
 
-> Note: If the the `write_current_source_version.py` script is missing from the extracted source code directory, you can download it from [here](https://raw.githubusercontent.com/envoyproxy/envoy/tree/main/tools/github/write_current_source_version.py).
+> **Note**: If the the `write_current_source_version.py` script is missing from the extracted source code directory, you can download it from [here](https://raw.githubusercontent.com/envoyproxy/envoy/main/tools/github/write_current_source_version.py).
 > This script is used to generate SOURCE_VERSION that is required by [`bazel/get_workspace_status`](./get_workspace_status) to "stamp" the binary in a non-git directory.
+
+> **Note**: To avoid rate-limiting by GitHub API, you can provide [a valid GitHub token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github#githubs-token-formats) to `GITHUB_TOKEN` environment variable.
+> The environment variable name that holds the token can also be customized by setting `--github_api_token_env_name`.
+> In a GitHub Actions workflow file, you can set this token from [`secrets.GITHUB_TOKEN`](https://docs.github.com/en/actions/security-guides/automatic-token-authentication#about-the-github_token-secret).
+
+Examples:
+
+```console
+GITHUB_TOKEN=<GITHUB_TOKEN> python3 tools/github/write_current_source_version.py
+MY_TOKEN=<GITHUB_TOKEN> python3 tools/github/write_current_source_version.py --github_api_token_env_name=MY_TOKEN
+```
 
 ## Quick start Bazel build for developers
 
@@ -64,12 +75,8 @@ for how to update or override dependencies.
     ```console
     sudo apt-get install \
        autoconf \
-       automake \
-       cmake \
        curl \
        libtool \
-       make \
-       ninja-build \
        patch \
        python3-pip \
        unzip \
@@ -81,13 +88,11 @@ for how to update or override dependencies.
     ```console
     dnf install \
         aspell-en \
-        cmake \
         libatomic \
         libstdc++ \
         libstdc++-static \
         libtool \
         lld \
-        ninja-build \
         patch \
         python3-pip
     ```
@@ -117,7 +122,7 @@ for how to update or override dependencies.
     ### macOS
     On macOS, you'll need to install several dependencies. This can be accomplished via [Homebrew](https://brew.sh/):
     ```console
-    brew install coreutils wget cmake libtool go bazel automake ninja clang-format autoconf aspell python@3.10
+    brew install coreutils wget libtool go bazelisk clang-format autoconf aspell
     ```
     _notes_: `coreutils` is used for `realpath`, `gmd5sum` and `gsha256sum`
 
@@ -215,15 +220,6 @@ for how to update or override dependencies.
     ```
 
     The Windows SDK contains header files and libraries you need when building Windows applications. Bazel always uses the latest, but you can specify a different version by setting the environment variable `BAZEL_WINSDK_FULL_VERSION`. See [bazel/windows](https://docs.bazel.build/versions/master/windows.html)
-
-    Ensure `CMake` and `ninja` binaries are on the PATH. The versions packaged with VC++ Build
-    Tools are sufficient in most cases, but are 32 bit binaries. These flavors will not run in
-    the project's GCP CI remote build environment, so 64 bit builds from the CMake and ninja
-    projects are used instead.
-    ```cmd
-    set PATH=%USERPROFILE%\VSBT2019\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin;%PATH%
-    set PATH=%USERPROFILE%\VSBT2019\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja;%PATH%
-    ```
 
     [MSYS2 shell](https://msys2.github.io/): Install to a path with no spaces, e.g. C:\msys64.
 
@@ -686,8 +682,12 @@ The following optional features can be disabled on the Bazel build command-line:
 * tcmalloc with `--define tcmalloc=disabled`. Also you can choose Gperftools' implementation of
   tcmalloc with `--define tcmalloc=gperftools` which is the default for builds other than x86_64 and aarch64.
 * deprecated features with `--define deprecated_features=disabled`
-* http3/quic with --//bazel:http3=False
+* http3/quic with `--//bazel:http3=False`
+* autolinking libraries with `--define=library_autolink=disabled`
 * admin HTML home page with `--define=admin_html=disabled`
+* admin functionality with `--define=admin_functionality=disabled`
+* static extension registration with `--define=static_extension_registration=disabled`
+* spdlogging functionality with `--define=enable_logging=disabled`
 
 ## Enabling optional features
 

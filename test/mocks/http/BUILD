@@ -67,7 +67,7 @@ envoy_cc_mock(
         "//envoy/http:conn_pool_interface",
         "//envoy/http:filter_interface",
         "//envoy/ssl:connection_interface",
-        "//envoy/tracing:http_tracer_interface",
+        "//envoy/tracing:tracer_interface",
         "//source/common/http:conn_manager_config_interface",
         "//source/common/http:filter_manager_lib",
         "//source/common/http:header_map_lib",
@@ -133,5 +133,14 @@ envoy_cc_mock(
     hdrs = ["stream_reset_handler.h"],
     deps = [
         "//envoy/http:stream_reset_handler_interface",
+    ],
+)
+
+envoy_cc_mock(
+    name = "early_header_mutation_mock",
+    srcs = ["early_header_mutation.cc"],
+    hdrs = ["early_header_mutation.h"],
+    deps = [
+        "//envoy/http:early_header_mutation_interface",
     ],
 )

@@ -20,16 +20,8 @@ public:
       : DefaultCertValidator(config, stats, time_source),
         validation_time_out_ms_(validation_time_out_ms), expected_host_name_(expected_host_name) {}
 
-  int doSynchronousVerifyCertChain(
-      X509_STORE_CTX* /*store_ctx*/, Ssl::SslExtendedSocketInfo* /*ssl_extended_info*/,
-      X509& /*leaf_cert*/,
-      const Network::TransportSocketOptions* /*transport_socket_options*/) override {
-    PANIC("unimplemented");
-  }
-
   ValidationResults
   doVerifyCertChain(STACK_OF(X509)& cert_chain, Ssl::ValidateResultCallbackPtr callback,
-                    Ssl::SslExtendedSocketInfo* ssl_extended_info,
                     const Network::TransportSocketOptionsConstSharedPtr& transport_socket_options,
                     SSL_CTX& ssl_ctx,
                     const CertValidator::ExtraValidationContext& validation_context, bool is_server,

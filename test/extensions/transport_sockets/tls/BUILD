@@ -13,6 +13,7 @@ envoy_package()
 
 envoy_cc_test(
     name = "ssl_socket_test",
+    size = "large",
     srcs = [
         "ssl_certs_test.h",
         "ssl_socket_test.cc",
@@ -202,6 +203,7 @@ envoy_cc_test(
         "//test/mocks/stats:stats_mocks",
         "//test/test_common:registry_lib",
         "//test/test_common:test_runtime_lib",
+        "@envoy_api//envoy/extensions/transport_sockets/tls/v3:pkg_cc_proto",
     ],
 )
 

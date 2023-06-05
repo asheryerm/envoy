@@ -43,8 +43,8 @@ public:
 class MockDispatcherQueued : public Event::MockDispatcher {
 public:
   MockDispatcherQueued(const std::string& name) : Event::MockDispatcher(name) {
-    ON_CALL(*this, post).WillByDefault([this](std::function<void()> callback) {
-      callbacks_.push(callback);
+    ON_CALL(*this, post).WillByDefault([this](Event::PostCb callback) {
+      callbacks_.push(std::move(callback));
     });
   }
 
@@ -63,7 +63,7 @@ public:
   }
 
 private:
-  std::queue<std::function<void()>> callbacks_;
+  std::queue<Event::PostCb> callbacks_;
 };
 
 class BaseAdminHandlerTest : public testing::Test {
@@ -138,7 +138,7 @@ tap_config:
           max_traces: {}
           timeout: {}
 )EOF";
-    return fmt::format(buffered_admin_request_yaml_, max_traces, timeout_s);
+    return fmt::format(fmt::runtime(buffered_admin_request_yaml_), max_traces, timeout_s);
   }
 
   // Cannot be moved into individual test cases as expected calls are validated on object

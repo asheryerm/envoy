@@ -24,6 +24,7 @@ envoy_extension_cc_test(
 
 envoy_extension_cc_test(
     name = "oauth_integration_test",
+    size = "large",
     srcs = ["oauth_integration_test.cc"],
     extension_names = ["envoy.filters.http.oauth2"],
     deps = [
@@ -50,6 +51,7 @@ envoy_extension_cc_test(
         "//test/integration:http_integration_lib",
         "//test/mocks/server:server_mocks",
         "//test/mocks/upstream:upstream_mocks",
+        "//test/test_common:test_runtime_lib",
         "@envoy_api//envoy/extensions/filters/http/oauth2/v3:pkg_cc_proto",
     ],
 )

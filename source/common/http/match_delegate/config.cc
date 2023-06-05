@@ -14,7 +14,7 @@ namespace Common {
 namespace Http {
 namespace MatchDelegate {
 
-namespace {
+namespace Factory {
 
 class SkipActionFactory
     : public Matcher::ActionFactory<Envoy::Http::Matching::HttpFilterActionContext> {
@@ -92,7 +92,7 @@ struct DelegatingFactoryCallbacks : public Envoy::Http::FilterChainFactoryCallba
   Matcher::MatchTreeSharedPtr<Envoy::Http::HttpMatchingData> match_tree_;
 };
 
-} // namespace
+} // namespace Factory
 
 void DelegatingStreamFilter::FilterMatchState::evaluateMatchTree(
     MatchDataUpdateFunc data_update_func) {
@@ -180,13 +180,14 @@ void DelegatingStreamFilter::decodeComplete() {
 void DelegatingStreamFilter::setDecoderFilterCallbacks(
     Envoy::Http::StreamDecoderFilterCallbacks& callbacks) {
   match_state_.onStreamInfo(callbacks.streamInfo());
+  decoder_callbacks_ = &callbacks;
   decoder_filter_->setDecoderFilterCallbacks(callbacks);
 }
 
-Envoy::Http::FilterHeadersStatus
+Envoy::Http::Filter1xxHeadersStatus
 DelegatingStreamFilter::encode1xxHeaders(Envoy::Http::ResponseHeaderMap& headers) {
   if (match_state_.skipFilter()) {
-    return Envoy::Http::FilterHeadersStatus::Continue;
+    return Envoy::Http::Filter1xxHeadersStatus::Continue;
   }
   return encoder_filter_->encode1xxHeaders(headers);
 }
@@ -240,6 +241,7 @@ void DelegatingStreamFilter::encodeComplete() {
 void DelegatingStreamFilter::setEncoderFilterCallbacks(
     Envoy::Http::StreamEncoderFilterCallbacks& callbacks) {
   match_state_.onStreamInfo(callbacks.streamInfo());
+  encoder_callbacks_ = &callbacks;
   encoder_filter_->setEncoderFilterCallbacks(callbacks);
 }
 
@@ -256,7 +258,7 @@ Envoy::Http::FilterFactoryCb MatchDelegateConfig::createFilterFactoryFromProtoTy
       proto_config.extension_config().typed_config(), context.messageValidationVisitor(), factory);
   auto filter_factory = factory.createFilterFactoryFromProto(*message, prefix, context);
 
-  MatchTreeValidationVisitor validation_visitor(*factory.matchingRequirements());
+  Factory::MatchTreeValidationVisitor validation_visitor(*factory.matchingRequirements());
 
   Envoy::Http::Matching::HttpFilterActionContext action_context{prefix, context};
   Matcher::MatchTreeFactory<Envoy::Http::HttpMatchingData,
@@ -279,7 +281,7 @@ Envoy::Http::FilterFactoryCb MatchDelegateConfig::createFilterFactoryFromProtoTy
 
   Matcher::MatchTreeSharedPtr<Envoy::Http::HttpMatchingData> match_tree = factory_cb();
   return [filter_factory, match_tree](Envoy::Http::FilterChainFactoryCallbacks& callbacks) -> void {
-    DelegatingFactoryCallbacks delegating_callbacks(callbacks, match_tree);
+    Factory::DelegatingFactoryCallbacks delegating_callbacks(callbacks, match_tree);
     return filter_factory(delegating_callbacks);
   };
 }

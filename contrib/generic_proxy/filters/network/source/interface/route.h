@@ -4,6 +4,8 @@
 
 #include "envoy/config/core/v3/base.pb.h"
 #include "envoy/config/typed_metadata.h"
+#include "envoy/rds/config.h"
+#include "envoy/router/router.h"
 
 #include "contrib/generic_proxy/filters/network/source/interface/stream.h"
 
@@ -19,14 +21,23 @@ public:
 using RouteSpecificFilterConfigConstSharedPtr = std::shared_ptr<const RouteSpecificFilterConfig>;
 
 /**
- * Interface of typed metadata factory.
+ * Interface of typed metadata factory. Reuse the same interface as the HTTP's router filter because
+ * part of these abstractions are protocol independent.
  */
-class RouteTypedMetadataFactory : public Envoy::Config::TypedMetadataFactory {};
+using RouteTypedMetadataFactory = Envoy::Router::HttpRouteTypedMetadataFactory;
 
 class RouteEntry {
 public:
   virtual ~RouteEntry() = default;
 
+  /**
+   * @return absl::string_view the name of the route.
+   */
+  virtual absl::string_view name() const PURE;
+
+  /**
+   * @return const std::string& the name of the target cluster.
+   */
   virtual const std::string& clusterName() const PURE;
 
   /**
@@ -38,17 +49,21 @@ public:
   }
 
   /**
-   * @return const envoy::config::core::v3::Metadata& return the metadata provided in the config for
-   * this route.
+   * @return const envoy::config::core::v3::Metadata& return the metadata provided in the config
+   * for this route.
    */
   virtual const envoy::config::core::v3::Metadata& metadata() const PURE;
+
+  /**
+   * @return const Envoy::Config::TypedMetadata& return the typed metadata provided in the config
+   * for this route.
+   */
+  virtual const Envoy::Config::TypedMetadata& typedMetadata() const PURE;
 };
 using RouteEntryConstSharedPtr = std::shared_ptr<const RouteEntry>;
 
-class RouteMatcher {
+class RouteMatcher : public Rds::Config {
 public:
-  virtual ~RouteMatcher() = default;
-
   virtual RouteEntryConstSharedPtr routeEntry(const Request& request) const PURE;
 };
 using RouteMatcherPtr = std::unique_ptr<RouteMatcher>;

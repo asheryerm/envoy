@@ -5,6 +5,7 @@
 #include <array>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -90,9 +91,6 @@ public:
 
   std::vector<Ssl::PrivateKeyMethodProviderSharedPtr> getPrivateKeyMethodProviders();
 
-  // TODO(danzh) remove when deprecate envoy.reloadable_features.tls_async_cert_validation
-  bool verifyCertChain(X509& leaf_cert, STACK_OF(X509)& intermediates, std::string& error_details);
-
   // Validate cert asynchronously for a QUIC connection.
   ValidationResults customVerifyCertChainForQuic(
       STACK_OF(X509)& cert_chain, Ssl::ValidateResultCallbackPtr callback, bool is_server,
@@ -114,9 +112,6 @@ protected:
    */
   static int sslContextIndex();
 
-  // A SSL_CTX_set_cert_verify_callback for custom cert validation.
-  static int verifyCallback(X509_STORE_CTX* store_ctx, void* arg);
-
   // A SSL_CTX_set_custom_verify callback for asynchronous cert validation.
   static enum ssl_verify_result_t customVerifyCallback(SSL* ssl, uint8_t* out_alert);
 
@@ -130,6 +125,8 @@ protected:
   ValidationResults customVerifyCertChain(
       Envoy::Ssl::SslExtendedSocketInfo* extended_socket_info,
       const Network::TransportSocketOptionsConstSharedPtr& transport_socket_options, SSL* ssl);
+
+  void populateServerNamesMap(TlsContext& ctx, const int pkey_id);
 
   // This is always non-empty, with the first context used for all new SSL
   // objects. For server contexts, once we have ClientHello, we
@@ -171,7 +168,6 @@ public:
 
 private:
   int newSessionKey(SSL_SESSION* session);
-  uint16_t parseSigningAlgorithmsForTest(const std::string& sigalgs);
 
   const std::string server_name_indication_;
   const bool allow_renegotiation_;
@@ -194,6 +190,16 @@ public:
   enum ssl_select_cert_result_t selectTlsContext(const SSL_CLIENT_HELLO* ssl_client_hello);
 
 private:
+  // Currently, at most one certificate of a given key type may be specified for each exact
+  // server name or wildcard domain name.
+  using PkeyTypesMap = absl::flat_hash_map<int, std::reference_wrapper<TlsContext>>;
+  // Both exact server names and wildcard domains are part of the same map, in which wildcard
+  // domains are prefixed with "." (i.e. ".example.com" for "*.example.com") to differentiate
+  // between exact and wildcard entries.
+  using ServerNamesMap = absl::flat_hash_map<std::string, PkeyTypesMap>;
+
+  void populateServerNamesMap(TlsContext& ctx, const int pkey_id);
+
   using SessionContextID = std::array<uint8_t, SSL_MAX_SSL_SESSION_ID_LENGTH>;
 
   int alpnSelectCallback(const unsigned char** out, unsigned char* outlen, const unsigned char* in,
@@ -208,6 +214,9 @@ private:
 
   const std::vector<Envoy::Ssl::ServerContextConfig::SessionTicketKey> session_ticket_keys_;
   const Ssl::ServerContextConfig::OcspStaplePolicy ocsp_staple_policy_;
+  ServerNamesMap server_names_map_;
+  bool has_rsa_;
+  bool full_scan_certs_on_sni_mismatch_;
 };
 
 } // namespace Tls

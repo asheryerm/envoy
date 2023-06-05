@@ -18,13 +18,13 @@ namespace Tls {
 void ValidateResultCallbackImpl::onSslHandshakeCancelled() { extended_socket_info_.reset(); }
 
 void ValidateResultCallbackImpl::onCertValidationResult(bool succeeded,
+                                                        Ssl::ClientValidationStatus detailed_status,
                                                         const std::string& /*error_details*/,
                                                         uint8_t tls_alert) {
   if (!extended_socket_info_.has_value()) {
     return;
   }
-  extended_socket_info_->setCertificateValidationStatus(
-      succeeded ? Ssl::ClientValidationStatus::Validated : Ssl::ClientValidationStatus::Failed);
+  extended_socket_info_->setCertificateValidationStatus(detailed_status);
   extended_socket_info_->setCertificateValidationAlert(tls_alert);
   extended_socket_info_->onCertificateValidationCompleted(succeeded);
 }
@@ -48,7 +48,6 @@ void SslExtendedSocketInfoImpl::onCertificateValidationCompleted(bool succeeded)
   cert_validation_result_ =
       succeeded ? Ssl::ValidateStatus::Successful : Ssl::ValidateStatus::Failed;
   if (cert_validate_result_callback_.has_value()) {
-    ASSERT(Runtime::runtimeFeatureEnabled("envoy.reloadable_features.tls_async_cert_validation"));
     // This is an async cert validation.
     cert_validate_result_callback_.reset();
     // Resume handshake.

@@ -28,15 +28,6 @@ public:
     HttpTestUtility::addDefaultHeaders(downstream_request_header_map_);
     ON_CALL(router_filter_interface_, downstreamHeaders())
         .WillByDefault(Return(&downstream_request_header_map_));
-
-    ON_CALL(*router_filter_interface_.cluster_info_, createFilterChain)
-        .WillByDefault(Invoke([&](Http::FilterChainManager& manager) -> void {
-          Http::FilterFactoryCb factory_cb =
-              [](Http::FilterChainFactoryCallbacks& callbacks) -> void {
-            callbacks.addStreamDecoderFilter(std::make_shared<UpstreamCodecFilter>());
-          };
-          manager.applyFilterFactoryCb({}, factory_cb);
-        }));
   }
 
   void initialize() {
@@ -55,7 +46,6 @@ public:
   Http::TestRequestHeaderMapImpl downstream_request_header_map_{};
   Stats::TestUtil::TestSymbolTable symbol_table_;
   Stats::StatNamePool pool_;
-  NiceMock<MockTimeSystem> time_system;
   NiceMock<Server::Configuration::MockFactoryContext> context_;
   NiceMock<MockRouterFilterInterface> router_filter_interface_;
   std::unique_ptr<Router::FilterConfig> router_config_; // must outlive `UpstreamRequest`
@@ -118,20 +108,25 @@ TEST_F(UpstreamRequestTest, DecodeHeadersGrpcSpanAnnotations) {
 // Test sending headers from the router to upstream.
 TEST_F(UpstreamRequestTest, AcceptRouterHeaders) {
   TestScopedRuntime scoped_runtime;
-  scoped_runtime.mergeValues({{"envoy.reloadable_features.allow_upstream_filters", "true"}});
   std::shared_ptr<Http::MockStreamDecoderFilter> filter(
       new NiceMock<Http::MockStreamDecoderFilter>());
 
   EXPECT_CALL(*router_filter_interface_.cluster_info_, createFilterChain)
-      .WillOnce(Invoke([&](Http::FilterChainManager& manager) -> void {
-        auto factory = createDecoderFilterFactoryCb(filter);
-        manager.applyFilterFactoryCb({}, factory);
-        Http::FilterFactoryCb factory_cb =
-            [](Http::FilterChainFactoryCallbacks& callbacks) -> void {
-          callbacks.addStreamDecoderFilter(std::make_shared<UpstreamCodecFilter>());
-        };
-        manager.applyFilterFactoryCb({}, factory_cb);
-      }));
+      .Times(2)
+      .WillRepeatedly(
+          Invoke([&](Http::FilterChainManager& manager, bool only_create_if_configured) -> bool {
+            if (only_create_if_configured) {
+              return false;
+            }
+            auto factory = createDecoderFilterFactoryCb(filter);
+            manager.applyFilterFactoryCb({}, factory);
+            Http::FilterFactoryCb factory_cb =
+                [](Http::FilterChainFactoryCallbacks& callbacks) -> void {
+              callbacks.addStreamDecoderFilter(std::make_shared<UpstreamCodecFilter>());
+            };
+            manager.applyFilterFactoryCb({}, factory_cb);
+            return true;
+          }));
 
   initialize();
   ASSERT_TRUE(filter->callbacks_ != nullptr);
@@ -140,8 +135,8 @@ TEST_F(UpstreamRequestTest, AcceptRouterHeaders) {
   EXPECT_FALSE(filter->callbacks_->informationalHeaders().has_value());
   EXPECT_FALSE(filter->callbacks_->responseHeaders().has_value());
   EXPECT_FALSE(filter->callbacks_->http1StreamEncoderOptions().has_value());
-  EXPECT_EQ(&filter->callbacks_->tracingConfig(),
-            &router_filter_interface_.callbacks_.tracingConfig());
+  EXPECT_EQ(&filter->callbacks_->tracingConfig().value().get(),
+            &router_filter_interface_.callbacks_.tracingConfig().value().get());
   EXPECT_EQ(filter->callbacks_->clusterInfo(), router_filter_interface_.callbacks_.clusterInfo());
   EXPECT_EQ(&filter->callbacks_->activeSpan(), &router_filter_interface_.callbacks_.activeSpan());
   EXPECT_EQ(&filter->callbacks_->streamInfo(), &router_filter_interface_.callbacks_.streamInfo());
@@ -162,6 +157,28 @@ TEST_F(UpstreamRequestTest, AcceptRouterHeaders) {
 
   EXPECT_CALL(router_filter_interface_.callbacks_, resetStream(_, _));
   filter->callbacks_->resetStream();
+}
+
+TEST_F(UpstreamRequestTest, ConnectionPoolLatencyTime) {
+  initialize();
+
+  const auto latency_to_add = std::chrono::microseconds(10);
+
+  EXPECT_CALL(*conn_pool_, newStream(_))
+      .WillOnce(Invoke([&](GenericConnectionPoolCallbacks* callbacks) {
+        router_filter_interface_.callbacks_.dispatcher_.globalTimeSystem().advanceTimeWait(
+            latency_to_add);
+
+        callbacks->onPoolFailure(ConnectionPool::PoolFailureReason::LocalConnectionFailure,
+                                 "Some Failure", nullptr);
+        return nullptr;
+      }));
+
+  upstream_request_->acceptHeadersFromRouter(false);
+  const StreamInfo::UpstreamTiming& timing =
+      upstream_request_->streamInfo().upstreamInfo()->upstreamTiming();
+  ASSERT_TRUE(timing.connectionPoolCallbackLatency().has_value());
+  EXPECT_EQ(timing.connectionPoolCallbackLatency().value(), latency_to_add);
 }
 
 // UpstreamRequest dumpState without allocating memory.
@@ -188,6 +205,11 @@ TEST_F(UpstreamRequestTest, DumpsStateWithoutAllocatingMemory) {
   EXPECT_THAT(ostream.contents(), HasSubstr("UpstreamRequest "));
   EXPECT_THAT(ostream.contents(), HasSubstr("addressProvider: \n  ConnectionInfoSetterImpl "));
   EXPECT_THAT(ostream.contents(), HasSubstr("request_headers: \n"));
+}
+
+TEST_F(UpstreamRequestTest, TestSetStreamInfoFields) {
+  initialize();
+  EXPECT_EQ(upstream_request_->streamInfo().route(), router_filter_interface_.callbacks_.route());
 }
 
 } // namespace

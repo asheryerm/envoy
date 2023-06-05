@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -7,20 +8,26 @@
 #include "envoy/network/connection.h"
 #include "envoy/network/filter.h"
 #include "envoy/server/factory_context.h"
+#include "envoy/tracing/tracer_manager.h"
 
 #include "source/common/buffer/buffer_impl.h"
 #include "source/common/common/linked_object.h"
 #include "source/common/common/logger.h"
 #include "source/common/stream_info/stream_info_impl.h"
+#include "source/common/tracing/tracer_config_impl.h"
+#include "source/common/tracing/tracer_impl.h"
 
 #include "contrib/envoy/extensions/filters/network/generic_proxy/v3/generic_proxy.pb.h"
 #include "contrib/envoy/extensions/filters/network/generic_proxy/v3/generic_proxy.pb.validate.h"
 #include "contrib/envoy/extensions/filters/network/generic_proxy/v3/route.pb.h"
-#include "contrib/generic_proxy/filters/network/source/interface/codec.h"
 #include "contrib/generic_proxy/filters/network/source/interface/filter.h"
+#include "contrib/generic_proxy/filters/network/source/interface/proxy_config.h"
 #include "contrib/generic_proxy/filters/network/source/interface/route.h"
 #include "contrib/generic_proxy/filters/network/source/interface/stream.h"
+#include "contrib/generic_proxy/filters/network/source/rds.h"
+#include "contrib/generic_proxy/filters/network/source/rds_impl.h"
 #include "contrib/generic_proxy/filters/network/source/route.h"
+#include "contrib/generic_proxy/filters/network/source/upstream.h"
 
 namespace Envoy {
 namespace Extensions {
@@ -39,21 +46,30 @@ struct NamedFilterFactoryCb {
   FilterFactoryCb callback_;
 };
 
-class FilterConfig : public FilterChainFactory {
+class FilterConfigImpl : public FilterConfig {
 public:
-  FilterConfig(const std::string& stat_prefix, CodecFactoryPtr codec, RouteMatcherPtr route_matcher,
-               std::vector<NamedFilterFactoryCb> factories, Server::Configuration::FactoryContext&)
+  FilterConfigImpl(const std::string& stat_prefix, CodecFactoryPtr codec,
+                   Rds::RouteConfigProviderSharedPtr route_config_provider,
+                   std::vector<NamedFilterFactoryCb> factories, Tracing::TracerSharedPtr tracer,
+                   Tracing::ConnectionManagerTracingConfigPtr tracing_config,
+                   Envoy::Server::Configuration::FactoryContext& context)
       : stat_prefix_(stat_prefix), codec_factory_(std::move(codec)),
-        route_matcher_(std::move(route_matcher)), factories_(std::move(factories)) {}
+        route_config_provider_(std::move(route_config_provider)), factories_(std::move(factories)),
+        drain_decision_(context.drainDecision()), tracer_(std::move(tracer)),
+        tracing_config_(std::move(tracing_config)) {}
 
-  FilterConfig(const ProxyConfig& config, Server::Configuration::FactoryContext& context)
-      : FilterConfig(config.stat_prefix(), codecFactoryFromProto(config.codec_config(), context),
-                     routeMatcherFromProto(config.route_config(), context),
-                     filtersFactoryFromProto(config.filters(), config.stat_prefix(), context),
-                     context) {}
-
-  RouteEntryConstSharedPtr routeEntry(const Request& request) const {
-    return route_matcher_->routeEntry(request);
+  // FilterConfig
+  RouteEntryConstSharedPtr routeEntry(const Request& request) const override {
+    auto config = std::static_pointer_cast<const RouteMatcher>(route_config_provider_->config());
+    return config->routeEntry(request);
+  }
+  const CodecFactory& codecFactory() const override { return *codec_factory_; }
+  const Network::DrainDecision& drainDecision() const override { return drain_decision_; }
+  OptRef<Tracing::Tracer> tracingProvider() const override {
+    return makeOptRefFromPtr<Tracing::Tracer>(tracer_.get());
+  }
+  OptRef<const Tracing::ConnectionManagerTracingConfig> tracingConfig() const override {
+    return makeOptRefFromPtr<const Tracing::ConnectionManagerTracingConfig>(tracing_config_.get());
   }
 
   // FilterChainFactory
@@ -63,19 +79,6 @@ public:
     }
   }
 
-  const CodecFactory& codecFactory() { return *codec_factory_; }
-
-  static CodecFactoryPtr
-  codecFactoryFromProto(const envoy::config::core::v3::TypedExtensionConfig& codec_config,
-                        Server::Configuration::FactoryContext& context);
-
-  static RouteMatcherPtr routeMatcherFromProto(const RouteConfiguration& route_config,
-                                               Server::Configuration::FactoryContext& context);
-
-  static std::vector<NamedFilterFactoryCb> filtersFactoryFromProto(
-      const ProtobufWkt::RepeatedPtrField<envoy::config::core::v3::TypedExtensionConfig>& filters,
-      const std::string stats_prefix, Server::Configuration::FactoryContext& context);
-
 private:
   friend class ActiveStream;
   friend class Filter;
@@ -84,16 +87,21 @@ private:
 
   CodecFactoryPtr codec_factory_;
 
-  RouteMatcherPtr route_matcher_;
+  Rds::RouteConfigProviderSharedPtr route_config_provider_;
 
   std::vector<NamedFilterFactoryCb> factories_;
+
+  const Network::DrainDecision& drain_decision_;
+
+  Tracing::TracerSharedPtr tracer_;
+  Tracing::ConnectionManagerTracingConfigPtr tracing_config_;
 };
-using FilterConfigSharedPtr = std::shared_ptr<FilterConfig>;
 
 class ActiveStream : public FilterChainManager,
                      public LinkedObject<ActiveStream>,
                      public Envoy::Event::DeferredDeletable,
                      public ResponseEncoderCallback,
+                     public Tracing::Config,
                      Logger::Loggable<Envoy::Logger::Id::filter> {
 public:
   class ActiveFilterBase : public virtual StreamFilterCallbacks {
@@ -112,6 +120,17 @@ public:
       }
       return nullptr;
     }
+    const StreamInfo::StreamInfo& streamInfo() const override { return parent_.stream_info_; }
+    StreamInfo::StreamInfo& streamInfo() override { return parent_.stream_info_; }
+    Tracing::Span& activeSpan() override { return parent_.activeSpan(); }
+    OptRef<const Tracing::Config> tracingConfig() const override { return parent_.tracingConfig(); }
+    absl::optional<ExtendedOptions> requestOptions() const override {
+      return parent_.downstream_request_options_;
+    }
+    absl::optional<ExtendedOptions> responseOptions() const override {
+      return parent_.local_or_upstream_response_options_;
+    }
+    const Network::Connection* connection() const override;
 
     bool isDualFilter() const { return is_dual_; }
 
@@ -133,10 +152,12 @@ public:
       parent_.sendLocalReply(status, std::move(func));
     }
     void continueDecoding() override { parent_.continueDecoding(); }
-    void upstreamResponse(ResponsePtr response) override {
-      parent_.upstreamResponse(std::move(response));
+    void upstreamResponse(ResponsePtr response, ExtendedOptions options) override {
+      parent_.upstreamResponse(std::move(response), options);
     }
     void completeDirectly() override { parent_.completeDirectly(); }
+    void bindUpstreamConn(Upstream::TcpPoolData&& pool_data) override;
+    OptRef<UpstreamManager> boundUpstreamConn() override;
 
     DecoderFilterSharedPtr filter_;
   };
@@ -183,8 +204,7 @@ public:
     FilterContext context_;
   };
 
-  ActiveStream(Filter& parent, RequestPtr request);
-  ~ActiveStream() override;
+  ActiveStream(Filter& parent, RequestPtr request, ExtendedOptions request_options);
 
   void addDecoderFilter(ActiveDecoderFilterPtr filter) {
     decoder_filters_.emplace_back(std::move(filter));
@@ -193,6 +213,8 @@ public:
     encoder_filters_.emplace_back(std::move(filter));
   }
 
+  void initializeFilterChain(FilterChainFactory& factory);
+
   Envoy::Event::Dispatcher& dispatcher();
   const CodecFactory& downstreamCodec();
   void resetStream();
@@ -200,7 +222,7 @@ public:
 
   void sendLocalReply(Status status, ResponseUpdateFunction&&);
   void continueDecoding();
-  void upstreamResponse(ResponsePtr response);
+  void upstreamResponse(ResponsePtr response, ExtendedOptions options);
   void completeDirectly();
 
   void continueEncoding();
@@ -212,20 +234,48 @@ public:
   }
 
   // ResponseEncoderCallback
-  void onEncodingSuccess(Buffer::Instance& buffer, bool close_connection) override;
+  void onEncodingSuccess(Buffer::Instance& buffer) override;
 
   std::vector<ActiveDecoderFilterPtr>& decoderFiltersForTest() { return decoder_filters_; }
   std::vector<ActiveEncoderFilterPtr>& encoderFiltersForTest() { return encoder_filters_; }
   size_t nextDecoderFilterIndexForTest() { return next_decoder_filter_index_; }
   size_t nextEncoderFilterIndexForTest() { return next_encoder_filter_index_; }
 
+  Tracing::Span& activeSpan() {
+    if (active_span_) {
+      return *active_span_;
+    } else {
+      return Tracing::NullSpan::instance();
+    }
+  }
+
+  OptRef<const Tracing::Config> tracingConfig() const {
+    if (connection_manager_tracing_config_.has_value()) {
+      return {*this};
+    }
+    return {};
+  }
+
+  void completeRequest();
+
 private:
+  // Keep these methods private to ensure that these methods are only called by the reference
+  // returned by the public tracingConfig() method.
+  // Tracing::TracingConfig
+  Tracing::OperationName operationName() const override;
+  const Tracing::CustomTagMap* customTags() const override;
+  bool verbose() const override;
+  uint32_t maxPathTagLength() const override;
+
   bool active_stream_reset_{false};
 
   Filter& parent_;
 
   RequestPtr downstream_request_stream_;
+  absl::optional<ExtendedOptions> downstream_request_options_;
+
   ResponsePtr local_or_upstream_response_stream_;
+  absl::optional<ExtendedOptions> local_or_upstream_response_options_;
 
   RouteEntryConstSharedPtr cached_route_entry_;
 
@@ -234,20 +284,56 @@ private:
 
   std::vector<ActiveEncoderFilterPtr> encoder_filters_;
   size_t next_encoder_filter_index_{0};
+
+  StreamInfo::StreamInfoImpl stream_info_;
+
+  OptRef<const Tracing::ConnectionManagerTracingConfig> connection_manager_tracing_config_;
+  Tracing::SpanPtr active_span_;
 };
 using ActiveStreamPtr = std::unique_ptr<ActiveStream>;
+
+class UpstreamManagerImpl : public UpstreamConnection,
+                            public UpstreamManager,
+                            public ResponseDecoderCallback {
+public:
+  UpstreamManagerImpl(Filter& parent, Upstream::TcpPoolData&& tcp_pool_data);
+
+  // UpstreamConnection
+  void onPoolSuccessImpl() override;
+  void onPoolFailureImpl(ConnectionPool::PoolFailureReason reason,
+                         absl::string_view transport_failure_reason) override;
+  void onEventImpl(Network::ConnectionEvent event) override;
+
+  // ResponseDecoderCallback
+  void onDecodingSuccess(ResponsePtr response, ExtendedOptions options) override;
+  void onDecodingFailure() override;
+  void writeToConnection(Buffer::Instance& buffer) override;
+
+  // UpstreamManager
+  void registerResponseCallback(uint64_t stream_id, PendingResponseCallback& cb) override;
+  void registerUpstreamCallback(uint64_t stream_id, UpstreamBindingCallback& cb) override;
+  void unregisterResponseCallback(uint64_t stream_id) override;
+  void unregisterUpstreamCallback(uint64_t stream_id) override;
+
+  Filter& parent_;
+
+  absl::flat_hash_map<uint64_t, PendingResponseCallback*> registered_response_callbacks_;
+  absl::flat_hash_map<uint64_t, UpstreamBindingCallback*> registered_upstream_callbacks_;
+};
 
 class Filter : public Envoy::Network::ReadFilter,
                public Network::ConnectionCallbacks,
                public Envoy::Logger::Loggable<Envoy::Logger::Id::filter>,
                public RequestDecoderCallback {
 public:
-  Filter(FilterConfigSharedPtr config, Server::Configuration::FactoryContext& context)
-      : config_(std::move(config)), context_(context) {
-    decoder_ = config_->codecFactory().requestDecoder();
-    decoder_->setDecoderCallback(*this);
+  Filter(FilterConfigSharedPtr config, TimeSource& time_source, Runtime::Loader& runtime)
+      : config_(std::move(config)), drain_decision_(config_->drainDecision()),
+        time_source_(time_source), runtime_(runtime) {
+    request_decoder_ = config_->codecFactory().requestDecoder();
+    request_decoder_->setDecoderCallback(*this);
     response_encoder_ = config_->codecFactory().responseEncoder();
-    creator_ = config_->codecFactory().messageCreator();
+    message_creator_ = config_->codecFactory().messageCreator();
+    protocol_options_ = config_->codecFactory().protocolOptions();
   }
 
   // Envoy::Network::ReadFilter
@@ -261,16 +347,26 @@ public:
   }
 
   // RequestDecoderCallback
-  void onDecodingSuccess(RequestPtr request) override;
+  void onDecodingSuccess(RequestPtr request, ExtendedOptions options) override;
   void onDecodingFailure() override;
+  void writeToConnection(Buffer::Instance& data) override;
 
   // Network::ConnectionCallbacks
   void onEvent(Network::ConnectionEvent event) override {
-    if (event == Network::ConnectionEvent::Connected) {
+    ENVOY_LOG(debug, "generic proxy: downstream connection event {}", static_cast<uint32_t>(event));
+    if (event == Network::ConnectionEvent::Connected ||
+        event == Network::ConnectionEvent::ConnectedZeroRtt) {
       return;
     }
     downstream_connection_closed_ = true;
     resetStreamsForUnexpectedError();
+
+    // If these is bound upstream connection, clean it up.
+    if (upstream_manager_ != nullptr) {
+      upstream_manager_->cleanUp(true);
+      connection().dispatcher().deferredDelete(std::move(upstream_manager_));
+      upstream_manager_ = nullptr;
+    }
   }
   void onAboveWriteBufferHighWatermark() override {}
   void onBelowWriteBufferLowWatermark() override {}
@@ -282,9 +378,18 @@ public:
     return callbacks_->connection();
   }
 
-  Server::Configuration::FactoryContext& factoryContext() { return context_; }
+  /**
+   * Create a new active stream and add it to the active stream list.
+   * @param request the request to be processed.
+   * @param options the extended options for the request.
+   */
+  void newDownstreamRequest(RequestPtr request, ExtendedOptions options);
 
-  void newDownstreamRequest(RequestPtr request);
+  /**
+   * Move the stream to the deferred delete stream list. This is called when the stream is reset
+   * or completed.
+   * @param stream the stream to be deferred deleted.
+   */
   void deferredStream(ActiveStream& stream);
 
   static const std::string& name() {
@@ -293,24 +398,48 @@ public:
 
   std::list<ActiveStreamPtr>& activeStreamsForTest() { return active_streams_; }
 
+  // This may be called multiple times in some scenarios. But it is safe.
   void resetStreamsForUnexpectedError();
+  // This may be called multiple times in some scenarios. But it is safe.
+  void closeDownstreamConnection();
 
-private:
-  friend class ActiveStream;
+  void mayBeDrainClose();
 
-  bool downstream_connection_closed_{};
+  void bindUpstreamConn(Upstream::TcpPoolData&& tcp_pool_data);
+  OptRef<UpstreamManager> boundUpstreamConn() {
+    return makeOptRefFromPtr<UpstreamManager>(upstream_manager_.get());
+  }
+
+  void onBoundUpstreamConnectionEvent(Network::ConnectionEvent event);
+
+protected:
+  // This will be called when drain decision is made and all active streams are handled.
+  // This is a virtual method so that it can be overridden by derived classes.
+  virtual void onDrainCloseAndNoActiveStreams();
 
   Envoy::Network::ReadFilterCallbacks* callbacks_{nullptr};
 
-  FilterConfigSharedPtr config_{};
+private:
+  friend class ActiveStream;
+  friend class UpstreamManagerImpl;
 
-  RequestDecoderPtr decoder_;
+  bool downstream_connection_closed_{};
+
+  FilterConfigSharedPtr config_{};
+  const Network::DrainDecision& drain_decision_;
+  bool stream_drain_decision_{};
+  TimeSource& time_source_;
+  Runtime::Loader& runtime_;
+
+  RequestDecoderPtr request_decoder_;
   ResponseEncoderPtr response_encoder_;
-  MessageCreatorPtr creator_;
+  MessageCreatorPtr message_creator_;
+  ProtocolOptions protocol_options_;
 
   Buffer::OwnedImpl response_buffer_;
 
-  Server::Configuration::FactoryContext& context_;
+  // The upstream connection manager.
+  std::unique_ptr<UpstreamManagerImpl> upstream_manager_;
 
   std::list<ActiveStreamPtr> active_streams_;
 };

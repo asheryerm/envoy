@@ -6,6 +6,7 @@ ABI
 ACK
 ACL
 AES
+AllMuxes
 ALPN
 ALS
 AMZ
@@ -16,6 +17,7 @@ ARN
 ASAN
 ASCII
 ASM
+ASN
 ASSERTed
 ASSERTs
 AST
@@ -28,10 +30,14 @@ BSON
 BPF
 Bdecoded
 Bencoded
+DFP
+DOM
 GiB
+IPTOS
 Repick
 SION
 TRA
+Websockets
 abc
 abcd
 abd
@@ -39,12 +45,14 @@ ar
 btree
 CAS
 CB
+cartid
 cbor
 CDN
 CDS
 CEL
 CWND
 DLE
+DPE
 DSR
 DSS
 EBADF
@@ -58,6 +66,7 @@ ESC
 ETB
 ETX
 FS
+FIXME
 HEXDIG
 HEXDIGIT
 HPE
@@ -155,6 +164,8 @@ FIPS
 FIRSTHDR
 FQDN
 FREEBIND
+eslint
+freeifaddrs
 FUZZER
 FUZZERS
 delims
@@ -162,8 +173,10 @@ dereferencing
 differentially
 dnsresolvers
 endpos
+eps
 fo
 ghi
+golang
 guarddog
 GC
 GCC
@@ -197,6 +210,7 @@ IAM
 IANA
 IDL
 IETF
+IFADDRS
 INADDR
 INET
 INVAL
@@ -231,6 +245,8 @@ LEV
 LF
 LHS
 hls
+iframe
+ingressed
 integrations
 jkl
 lang
@@ -277,12 +293,15 @@ Oauth
 OCSP
 OD
 ODCDS
+middlewildcard
+monostate
 mpd
 oghttp
 OID
 OK
 OOM
 OOMs
+ORCA
 OS
 OSI
 OSS
@@ -423,10 +442,12 @@ UUIDs
 VC
 VCHAR
 VCL
+VFS
 VH
 VHDS
 VLOG
 VM
+VPN
 WAITFORONE
 WASM
 WAVM
@@ -459,6 +480,7 @@ acks
 acls
 addr
 agg
+AggregationTemporality
 alice
 alignas
 alignof
@@ -472,6 +494,8 @@ alls
 alphanumerics
 amongst
 anno
+anonymization
+anonymizing
 anys
 appmesh
 arg
@@ -577,6 +601,7 @@ codebase
 codec
 codecs
 codepath
+codepoints
 codings
 combinatorial
 comparator
@@ -648,6 +673,7 @@ deserialize
 deserialized
 deserializer
 deserializers
+deserializes
 deserializing
 dest
 destructor
@@ -737,6 +763,9 @@ gRPC
 gateway
 gcov
 genrule
+geolocation
+geoip
+Geoip
 getaddrinfo
 getaffinity
 gethostname
@@ -800,6 +829,8 @@ initializers
 inlined
 inlining
 inobservability
+inode
+inodes
 inotify
 inserter
 instantiation
@@ -931,6 +962,9 @@ negative
 netblock
 netblocks
 netfilter
+netlink
+netmask
+NLMSG
 nonblocking
 noncopyable
 nonresponsive
@@ -952,6 +986,7 @@ ocagent
 offsetof
 oneof
 oneway
+oob
 opcode
 opencensus
 openssl
@@ -1057,6 +1092,7 @@ qdtext
 qps
 quantile
 quantiles
+querydetails
 quiesce
 quitquitquit
 qvalue
@@ -1124,9 +1160,11 @@ responder
 restarter
 resync
 ret
+retransmitted
 retransmitting
 retriable
 retriggers
+retryable
 revalidated
 revalidation
 reverify
@@ -1328,6 +1366,7 @@ upcasts
 upstreams
 uptime
 upvalue
+urlencoded
 urls
 userdata
 userinfo
@@ -1356,6 +1395,7 @@ vip
 virtualhost
 virtualize
 vptr
+vtable
 vtt
 wakeup
 wakeups
@@ -1371,6 +1411,7 @@ winsock
 workspace
 writev
 wrsq
+www
 xDS
 xDSes
 xdstp
@@ -1381,6 +1422,8 @@ xid
 xmodem
 xxhash
 xxs
+xyz
+xyzwebservices
 zag
 zig
 zipkin

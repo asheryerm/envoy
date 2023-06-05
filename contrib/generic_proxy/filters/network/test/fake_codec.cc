@@ -23,11 +23,14 @@ ResponseEncoderPtr FakeStreamCodecFactory::responseEncoder() const {
 MessageCreatorPtr FakeStreamCodecFactory::messageCreator() const {
   return std::make_unique<FakeMessageCreator>();
 }
+ProtocolOptions FakeStreamCodecFactory::protocolOptions() const { return protocol_options_; }
 
 CodecFactoryPtr
-FakeStreamCodecFactoryConfig::createFactory(const Protobuf::Message&,
-                                            Envoy::Server::Configuration::FactoryContext&) {
-  return std::make_unique<FakeStreamCodecFactory>();
+FakeStreamCodecFactoryConfig::createCodecFactory(const Protobuf::Message&,
+                                                 Envoy::Server::Configuration::FactoryContext&) {
+  auto factory = std::make_unique<FakeStreamCodecFactory>();
+  factory->protocol_options_ = protocol_options_;
+  return factory;
 }
 
 } // namespace GenericProxy

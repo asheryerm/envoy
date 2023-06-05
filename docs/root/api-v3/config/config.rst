@@ -19,7 +19,10 @@ Extensions
   endpoint/endpoint
   filter/filter
   grpc_credential/grpc_credential
+  health_check_event_sinks/health_check_event_sinks
   health_checker/health_checker
+  http/early_header_mutation
+  http/custom_response
   http/header_formatters
   http/header_validators
   http/original_ip_detection
@@ -40,3 +43,4 @@ Extensions
   upstream/upstream
   wasm/wasm
   watchdog/watchdog
+  load_balancing_policies/load_balancing_policies

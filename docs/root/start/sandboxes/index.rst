@@ -55,6 +55,7 @@ The following sandboxes are available:
     ext_authz
     fault_injection
     front_proxy
+    golang
     grpc_bridge
     gzip
     jaeger_native_tracing
@@ -69,6 +70,7 @@ The following sandboxes are available:
     postgres
     rbac
     redis
+    route-mirror
     skywalking
     tls-inspector
     tls-sni

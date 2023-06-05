@@ -17,6 +17,8 @@ namespace Extensions {
 namespace HttpFilters {
 namespace {
 
+using ::testing::Return;
+
 // Limit the number of threads for the FileSystemBufferFilterConfig.manager_config.thread_count to
 // 8 to ensure test stays responsive.
 static const uint32_t kMaxAsyncFileManagerThreadCount = 8;
@@ -162,7 +164,8 @@ void UberFilterFuzzer::perFilterSetup() {
       .WillByDefault(testing::Return(resolver_));
 
   // Prepare expectations for TAP config.
-  ON_CALL(factory_context_, admin()).WillByDefault(testing::ReturnRef(factory_context_.admin_));
+  ON_CALL(factory_context_, admin())
+      .WillByDefault(testing::Return(OptRef<Server::Admin>{factory_context_.admin_}));
   ON_CALL(factory_context_.admin_, addHandler(_, _, _, _, _, _))
       .WillByDefault(testing::Return(true));
   ON_CALL(factory_context_.admin_, removeHandler(_)).WillByDefault(testing::Return(true));
